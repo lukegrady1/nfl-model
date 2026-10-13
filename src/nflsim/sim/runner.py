@@ -109,11 +109,17 @@ def acceptance_table(sim: dict, real: dict) -> tuple[str, bool]:
     return "\n".join(lines), all_ok
 
 
-def sim_matchup_summary(home: str, away: str, n: int, seed: int, playoff: bool = False, neutral: bool = False) -> dict:
+def sim_matchup_summary(home: str, away: str, n: int, seed: int, playoff: bool = False, neutral: bool = False,
+                        tables_only: bool = False, M: dict | None = None, label: str = "") -> dict:
     if home == away:
         home, away = f"{home}_H", f"{away}_A"
+    if M is None:
+        from nflsim.models.registry import build_models, default_models
+        M = build_models(set()) if tables_only else default_models()
+    trained = sorted(k for k, m in M.items() if type(m).__name__ == "TrainedModel")
+    typer.echo(f"models: {len(trained)} trained ({', '.join(trained) or 'none'}), rest tables {label}")
     t0 = time.perf_counter()
-    results = simulate_many(home, away, n, seed, playoff=playoff, neutral=neutral)
+    results = simulate_many(home, away, n, seed, playoff=playoff, neutral=neutral, M=M)
     secs = time.perf_counter() - t0
     sim = summarize(results)
     typer.echo(f"{away} @ {home}: {n} games in {secs:.1f}s ({1000 * secs / n:.1f} ms/game), seed {seed}")
@@ -128,3 +134,39 @@ def sim_matchup_summary(home: str, away: str, n: int, seed: int, playoff: bool =
     out = OUTPUTS_DIR / f"sim_check_{away}_at_{home}_{n}.md"
     out.write_text(f"# {away} @ {home}, {n} sims, seed {seed}\n\n{table}\n\nruntime {secs:.1f}s\n")
     return {"sim": sim, "real": real, "pass": ok, "seconds": secs, "table": table}
+
+
+def swap_check(n: int = 2000, seed: int | None = None, names: list[str] | None = None) -> str:
+    """Phase 2: swap trained models in one at a time and re-run the Phase 1 league-average check after each."""
+    from nflsim.config import settings as _settings
+    from nflsim.models.registry import TRAINABLE, build_models
+    from nflsim.models.trained import available_trained
+
+    seed = seed if seed is not None else _settings()["seed"]
+    names = names or [m for m in TRAINABLE if m in available_trained()]
+    real = targets_2021_2025()
+    metrics = [m for m, _ in ACCEPTANCE] + ["ot_share"]
+    header = "| Swapped in | " + " | ".join(metrics) + " | Pass |\n|" + "---|" * (len(metrics) + 2)
+    lines = [header]
+    active: set[str] = set()
+    steps = [("tables only", None)] + [(name, name) for name in names]
+    for label, name in steps:
+        if name:
+            active.add(name)
+        M = build_models(set(active))
+        t0 = time.perf_counter()
+        results = simulate_many("AVG_H", "AVG_A", n, seed, M=M)
+        sim = summarize(results)
+        _, ok = acceptance_table(sim, real)
+        cells = []
+        for m, tol in ACCEPTANCE:
+            gap = sim[m] - real[m]
+            cells.append(f"{sim[m]:.3f} ({gap:+.2f}){'' if abs(gap) <= tol else ' !'}")
+        cells.append(f"{sim['ot_share']:.3f}")
+        lines.append(f"| {label} | " + " | ".join(cells) + f" | {'yes' if ok else 'NO'} |")
+        typer.echo(f"{label:18s} {time.perf_counter() - t0:5.1f}s  " + ("PASS" if ok else "FAIL") +
+                   "  pts %.2f plays %.2f pass %.3f cmp %.3f sack %.3f int %.3f punts %.2f fga %.2f mstd %.2f ot %.3f" % tuple(sim[m] for m in metrics))
+    table = "\n".join(lines)
+    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    (OUTPUTS_DIR / f"phase2_swap_check_{n}.md").write_text(table + "\n")
+    return table

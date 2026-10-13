@@ -7,6 +7,7 @@ from nflsim.config import settings
 from nflsim.engine import clock, kicking, overtime
 from nflsim.engine.state import GameState, Phase
 from nflsim.models import buckets as B
+from nflsim.models.features import PLAY_TYPES
 from nflsim.models.registry import sample_exact
 
 PT_COMPLETION, PT_SACK, PT_SCRAMBLE, PT_RUN = 0, 1, 2, 3
@@ -66,7 +67,7 @@ def kneel(state: GameState, box) -> dict:
 def presnap_penalty(state: GameState, side: str, rng: np.random.Generator, M: dict, box) -> dict:
     off = state.possession
     box.add(off, "penalties")
-    yds = int(M["presnap_penalty"].sample_within(rng, side)) if hasattr(M["presnap_penalty"], "sample_within") else 5
+    yds = int(sample_exact(M, "penalty_yards", rng, state, {"side_idx": 1 if side == "defense" else 0})) if "penalty_yards" in M else 5
     play = {"type": "penalty", "clock_stopper": True, "offense": off, "side": side}
     if side == "offense":
         yds = min(yds, (100 - state.yardline_100) // 2)   # half the distance to the goal line
@@ -133,6 +134,7 @@ def pass_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
             return play
         if out_of_bounds(state, PT_SCRAMBLE, rng, M):
             play["clock_stopper"] = True
+            play["oob"] = True
         apply_result(state, yards, box, play)
         return play
     # a throw
@@ -152,6 +154,7 @@ def pass_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
             return play
         if out_of_bounds(state, PT_COMPLETION, rng, M):
             play["clock_stopper"] = True
+            play["oob"] = True
         apply_result(state, yards, box, play)
         return play
     if outcome == "incomplete":
@@ -187,6 +190,7 @@ def run_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
         return play
     if out_of_bounds(state, PT_RUN, rng, M):
         play["clock_stopper"] = True
+        play["oob"] = True
     apply_result(state, yards, box, play)
     return play
 
@@ -197,15 +201,18 @@ def out_of_bounds(state: GameState, pt: int, rng: np.random.Generator, M: dict) 
     window = secs <= 120 if state.half == 1 else secs <= 300
     if not window or "out_of_bounds" not in M:
         return False
-    return M["out_of_bounds"].sample(rng, state, {"play_type_idx": pt}) == "yes"
+    return M["out_of_bounds"].sample(rng, state, {"play_type_idx": pt, "play_type": PLAY_TYPES[pt]}) == "yes"
 
 
 def fumble_check(state: GameState, pt: int, yards: int, rng: np.random.Generator, M: dict, box, play: dict) -> bool:
     """D9. A lost fumble flips possession at the spot (v1: no return). Returns True if possession changed."""
     off, deff = state.possession, state.defense
-    res = M["fumble_lost"].sample(rng, state, {"play_type_idx": pt})
+    res = M["fumble_lost"].sample(rng, state, {"play_type_idx": pt, "play_type": PLAY_TYPES[pt], "yards": yards})
     if res == "no":
         return False
+    if res == "yes" and "yes_td" not in M["fumble_lost"].classes and "fumble_return_td" in M:
+        if M["fumble_return_td"].sample(rng, state, {}) == "yes":
+            res = "yes_td"
     box.add(off, "fumbles_lost")
     box.add(off, "turnovers")
     play["clock_stopper"] = True

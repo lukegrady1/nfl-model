@@ -28,6 +28,8 @@ class Context:
     home: dict = field(default_factory=dict)
     away: dict = field(default_factory=dict)
     players: dict = field(default_factory=dict)
+    weather: dict = field(default_factory=dict)   # {"roof_dome": 0/1, "wind": mph}; empty = neutral defaults
+    season: int | None = None                      # season being simulated (era feature); None = last training season
 
 
 @dataclass

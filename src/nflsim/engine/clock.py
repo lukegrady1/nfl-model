@@ -22,7 +22,9 @@ def advance(state: GameState, play: dict, rng: np.random.Generator, M: dict, box
     under_two = half_secs <= 120
     stopper = bool(play["clock_stopper"])
 
-    extra = {"clock_stopper": stopper, "offense_diff": diff, "under_two": under_two}
+    extra = {"clock_stopper": stopper, "offense_diff": diff, "under_two": under_two, "offense": offense,
+             "play_was_pass": play.get("type") == "pass", "out_of_bounds": bool(play.get("oob", False)),
+             "play_type_kind": play.get("type")}
     # D16b: does a timeout follow this play? Under 2:00 the trailing team calls it, otherwise the offense.
     if under_two and not state.tied:
         candidate = state.opponent(state.leader)
@@ -35,6 +37,8 @@ def advance(state: GameState, play: dict, rng: np.random.Generator, M: dict, box
         elapsed = sample_exact(M, "timeout_runoff", rng, state, extra)
     elif play.get("forced_runoff") is not None:
         elapsed = int(play["forced_runoff"])
+    elif play.get("type") in ("kickoff", "free_kick") and "kickoff_runoff" in M:
+        elapsed = sample_exact(M, "kickoff_runoff", rng, state, extra)
     else:
         elapsed = sample_exact(M, "clock_runoff", rng, state, extra)
         # Spec 1.5.2: the offense takes a timeout rather than let the clock expire before a field goal.

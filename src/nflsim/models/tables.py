@@ -122,8 +122,8 @@ def _merge_level(counts: dict[tuple, np.ndarray], n_keys: int, L: int, min_n: in
         k = key[:L]
         agg[k] = agg.get(k, 0) + cnt
     if L == 0:
-        total = agg[()]
-        return {(): (total / total.sum(), int(round(total.sum())))} if total.sum() > 0 else {}
+        total = agg.get(())
+        return {(): (total / total.sum(), int(round(total.sum())))} if total is not None and total.sum() > 0 else {}
     out: dict[tuple, tuple[np.ndarray, int]] = {}
     prefixes = sorted({k[:-1] for k in agg})
     for pre in prefixes:
@@ -219,12 +219,13 @@ def _f(col: str) -> pl.Expr:
     return pl.col(col).fill_null(0)
 
 
-def table_plays() -> pl.DataFrame:
-    """Regular-season plays from table_seasons with the bucket columns attached."""
+def table_plays(seasons: list[int] | None = None) -> pl.DataFrame:
+    """Regular-season plays from table_seasons (or `seasons`) with the bucket columns attached."""
     from nflsim.data.clean import load_plays
 
     s = settings()
-    p = load_plays().filter(pl.col("season").is_in(s["table_seasons"]) & (pl.col("season_type") == "REG"))
+    seasons = seasons or s["table_seasons"]
+    p = load_plays().filter(pl.col("season").is_in(seasons) & (pl.col("season_type") == "REG"))
     diff = pl.col("score_differential").fill_null(0)
     p = p.with_columns(
         dist=pl.col("ydstogo").fill_null(10).map_batches(lambda x: pl.Series(B.vectorize(B.dist_bucket)(x.to_numpy()))),
@@ -269,11 +270,11 @@ def _fg_smoothed(fg: pl.DataFrame) -> Table:
     return Table("fg_make", ["distance"], ["made", "missed"], levels)
 
 
-def build_all_tables(write: bool = True) -> dict[str, Table]:
+def build_all_tables(write: bool = True, seasons: list[int] | None = None) -> dict[str, Table]:
     s = settings()
     min_n = s["min_cell_plays"]
-    p = table_plays()
-    typer.echo(f"building tables from {p.height} regular-season plays, seasons {s['table_seasons']}")
+    p = table_plays(seasons)
+    typer.echo(f"building tables from {p.height} regular-season plays, seasons {seasons or s['table_seasons']}")
     T: dict[str, Table] = {}
 
     calls = p.filter(pl.col("play_class").is_in(["pass", "run"]) & pl.col("down").is_between(1, 3))
@@ -327,6 +328,8 @@ def build_all_tables(write: bool = True) -> dict[str, Table]:
     fum = fum.filter(pl.col("ptype") != "none").with_columns(
         pt=pl.col("ptype").replace_strict({"completion": 0, "sack": 1, "scramble": 2, "run": 3}, return_dtype=pl.Int64))
     T["fumble_lost"] = build_table("fumble_lost", fum, ["pt"], "lost", ["no", "yes", "yes_td"], min_n)
+    frt = fum.filter(pl.col("lost") != "no").with_columns(td=pl.when(pl.col("lost") == "yes_td").then(pl.lit("yes")).otherwise(pl.lit("no")))
+    T["fumble_return_td"] = build_table("fumble_return_td", frt, [], "td", ["yes", "no"], min_n)
     oob = fum.with_columns(ob=pl.when(_f("out_of_bounds") == 1).then(pl.lit("yes")).otherwise(pl.lit("no")))
     T["out_of_bounds"] = build_table("out_of_bounds", oob, ["pt", "lead", "u2"], "ob", ["yes", "no"], min_n)
 
@@ -392,7 +395,7 @@ def build_all_tables(write: bool = True) -> dict[str, Table]:
     T["two_point_result"] = build_table("two_point_result", two, [], "r", ["good", "no_good"], min_n)
 
     # D16 clock runoff: seconds until the next snap. Exclude rows followed by a timeout or a period marker.
-    clk = p.filter(pl.col("play_class").is_in(["pass", "run", "punt", "field_goal", "kickoff", "penalty_no_play", "spike"])
+    clk = p.filter(pl.col("play_class").is_in(["pass", "run", "punt", "field_goal", "penalty_no_play", "spike"])
                    & pl.col("seconds_elapsed").is_not_null() & ~pl.col("next_play_is_timeout")
                    & ~pl.col("next_is_marker") & ~pl.col("next_is_two_minute_warning")
                    & (pl.col("next_qtr") == pl.col("qtr")))
@@ -400,6 +403,13 @@ def build_all_tables(write: bool = True) -> dict[str, Table]:
                            sbin=pl.col("seconds_elapsed").cast(pl.Int64).map_batches(lambda x: pl.Series(B.vectorize(B.seconds_bin)(x.to_numpy()))),
                            secs=pl.col("seconds_elapsed").cast(pl.Int64))
     T["clock_runoff"] = build_table("clock_runoff", clk, ["cs", "lead", "u2"], "sbin", list(range(10)), min_n, within_col="secs")
+
+    # Kickoff runoff (current kickoff rules only): touchbacks take 0 s, returns 5-10 s.
+    kor = p.filter((pl.col("play_class") == "kickoff") & pl.col("season").is_in(s["kickoff_seasons"])
+                   & pl.col("seconds_elapsed").is_not_null() & ~pl.col("next_play_is_timeout") & ~pl.col("next_is_marker")
+                   & (pl.col("next_qtr") == pl.col("qtr"))).with_columns(secs=pl.col("seconds_elapsed").cast(pl.Int64))
+    kor = kor.with_columns(sbin=pl.col("secs").map_batches(lambda x: pl.Series(B.vectorize(B.seconds_bin)(x.to_numpy()))))
+    T["kickoff_runoff"] = build_table("kickoff_runoff", kor, [], "sbin", list(range(10)), min_n, within_col="secs")
 
     # D16b timeouts: whether a timeout follows the play, and the snap-to-snap seconds when one does
     # (nflfastR puts the play's duration on the timeout row, so the two rows' elapsed are summed).
@@ -422,6 +432,8 @@ def build_all_tables(write: bool = True) -> dict[str, Table]:
         .when(pl.col("penalty_team") == pl.col("posteam")).then(pl.lit("offense")).otherwise(pl.lit("defense")),
         pyds=pl.col("penalty_yards").fill_null(5).cast(pl.Int64).clip(1, 50))
     T["presnap_penalty"] = build_table("presnap_penalty", snaps, ["down", "dist"], "side", ["none", "offense", "defense"], min_n, within_col="pyds")
+    pen = snaps.filter(pl.col("side") != "none").with_columns(side_idx=(pl.col("side") == "defense").cast(pl.Int64))
+    T["penalty_yards"] = build_table("penalty_yards", pen, ["side_idx"], "pyds", sorted(pen["pyds"].unique().to_list()), min_n)
     dpen = snaps.filter(pl.col("side") == "defense").with_columns(
         afd=pl.when(_f("first_down") == 1).then(pl.lit("yes")).otherwise(pl.lit("no")))
     T["def_penalty_first_down"] = build_table("def_penalty_first_down", dpen, [], "afd", ["yes", "no"], min_n)
@@ -473,6 +485,7 @@ class TableModel:
         self.name = table.name
         self.classes = table.classes
         self.key_fn = key_fn
+        self.within = table.within
 
     def proba(self, state, extra: dict) -> np.ndarray:
         return self.table.proba(self.key_fn(state, extra))

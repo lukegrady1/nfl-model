@@ -7,9 +7,9 @@ from nflsim.models import buckets as B
 from nflsim.models.tables import TableModel, load_tables
 
 DECISIONS = ["play_call", "fourth_down", "air_yards", "dropback_outcome", "throw_outcome", "yac", "sack_yards",
-             "scramble_yards", "rush_yards", "fumble_lost", "out_of_bounds", "pick_six", "int_return_yards", "fg_make", "punt_result",
+             "scramble_yards", "rush_yards", "fumble_lost", "fumble_return_td", "out_of_bounds", "pick_six", "int_return_yards", "fg_make", "punt_result",
              "punt_net_yards", "punt_retain_spot", "kickoff_result", "kickoff_spot", "free_kick_spot", "pat_choice",
-             "xp_result", "two_point_result", "clock_runoff", "timeout_after", "timeout_runoff", "presnap_penalty", "def_penalty_first_down"]
+             "xp_result", "two_point_result", "clock_runoff", "kickoff_runoff", "timeout_after", "timeout_runoff", "presnap_penalty", "penalty_yards", "def_penalty_first_down"]
 
 
 def _tb(s) -> int:
@@ -31,6 +31,7 @@ KEY_FNS = {
     "out_of_bounds": lambda s, e: (e["play_type_idx"], B.lead_bucket(s.score_diff),
                                    B.under_two_half(s.half_seconds_remaining, s.qtr)),
     "pick_six": lambda s, e: (),
+    "fumble_return_td": lambda s, e: (),
     "int_return_yards": lambda s, e: (),
     "fg_make": lambda s, e: (e["distance"],),
     "punt_result": lambda s, e: (B.yardline5(s.yardline_100),),
@@ -46,9 +47,11 @@ KEY_FNS = {
                                   B.under_two_half(s.half_seconds_remaining, s.qtr)),
     "timeout_after": lambda s, e: (int(e["clock_stopper"]), B.lead_bucket(e["offense_diff"]),
                                    B.under_two_half(s.half_seconds_remaining, s.qtr)),
+    "kickoff_runoff": lambda s, e: (),
     "timeout_runoff": lambda s, e: (int(e["clock_stopper"]), B.under_two_half(s.half_seconds_remaining, s.qtr)),
     "presnap_penalty": lambda s, e: (s.down, B.dist_bucket(s.ydstogo)),
     "def_penalty_first_down": lambda s, e: (),
+    "penalty_yards": lambda s, e: (int(e["side_idx"]),),
 }
 
 
@@ -57,13 +60,31 @@ def table_models() -> dict:
     return {name: TableModel(T[name], KEY_FNS[name]) for name in DECISIONS if name in T}
 
 
+# Decisions that Phase 2 trains; everything else stays an empirical table (spec step 2.2).
+TRAINABLE = ["play_call", "fourth_down", "air_yards", "dropback_outcome", "throw_outcome", "yac", "rush_yards",
+             "fumble_lost", "fg_make", "pat_choice", "clock_runoff", "presnap_penalty"]
+
+
+def build_models(trained: set[str] | None = None, tables: dict | None = None) -> dict:
+    """Lookup tables for every decision, with trained models swapped in for the names in `trained`
+    (None = every trained model saved in artifacts/models; empty set = tables only)."""
+    from nflsim.models.trained import available_trained, load_trained
+
+    M = table_models() if tables is None else {name: TableModel(tables[name], KEY_FNS[name]) for name in DECISIONS if name in tables}
+    names = set(available_trained()) & set(TRAINABLE) if trained is None else set(trained)
+    for name in sorted(names):
+        M[name] = load_trained(name)
+    return M
+
+
 _DEFAULT: dict | None = None
 
 
 def default_models() -> dict:
+    """Trained models where available, tables elsewhere (Phase 2 onward)."""
     global _DEFAULT
     if _DEFAULT is None:
-        _DEFAULT = table_models()
+        _DEFAULT = build_models()
     return _DEFAULT
 
 
@@ -71,7 +92,7 @@ def sample_exact(models: dict, name: str, rng: np.random.Generator, state, extra
     """Sample a class, then the exact value inside it if the model has a within-bin distribution."""
     m = models[name]
     cls = m.sample(rng, state, extra or {})
-    sw = getattr(m, "sample_within", None)
-    if sw is not None and getattr(m, "table", None) is not None and cls in m.table.within:
-        return int(sw(rng, cls))
+    within = getattr(m, "within", None)
+    if within and cls in within:
+        return int(m.sample_within(rng, cls))
     return cls

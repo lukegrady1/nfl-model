@@ -1,0 +1,93 @@
+"""Step 2.4: NumPy inference equals scikit-learn predict_proba; Phase 2 sanity scenarios."""
+import numpy as np
+import polars as pl
+import pytest
+from sklearn.linear_model import LogisticRegression
+
+from nflsim.models.trained import TrainedModel
+from tests.conftest import needs_data, needs_models
+
+
+def _fit_and_compare(name: str, classes: list, n_train: int = 20000, n_val: int = 10000):
+    from nflsim.models.train import dataset, encode, feature_matrix, feature_names, rows_of, standardize_params, training_plays
+
+    df, _, _ = dataset(name, training_plays())
+    val_season = df["season"].max()
+    train = df.filter(pl.col("season") < val_season).sample(n=n_train, seed=1)
+    val = df.filter(pl.col("season") == val_season).sample(n=min(n_val, (df["season"] == val_season).sum()), seed=2)
+    Xtr, Xva = feature_matrix(name, rows_of(train)), feature_matrix(name, rows_of(val))
+    ytr = encode(train, classes)
+    mean, std = standardize_params(Xtr)
+    clf = LogisticRegression(C=1.0, max_iter=5000).fit((Xtr - mean) / std, ytr)
+    spec = {"name": name, "classes": [str(c) for c in classes], "class_type": "int" if isinstance(classes[0], int) else "str",
+            "feature_names": feature_names(name), "means": mean.tolist(), "stds": std.tolist(),
+            "coef": clf.coef_.tolist(), "intercept": clf.intercept_.tolist()}
+    tm = TrainedModel(spec)
+    ours = tm.proba_from_features(Xva)
+    theirs = clf.predict_proba((Xva - mean) / std)
+    assert ours.shape == theirs.shape and ours.shape[0] >= 1000
+    assert np.abs(ours - theirs).max() < 1e-9
+    assert np.allclose(ours.sum(axis=1), 1.0, atol=1e-12)
+
+
+@needs_data
+def test_numpy_inference_matches_sklearn_binary():
+    _fit_and_compare("play_call", ["pass", "run"])
+
+
+@needs_data
+def test_numpy_inference_matches_sklearn_multinomial():
+    _fit_and_compare("fourth_down", ["go", "punt", "field_goal"])
+
+
+@needs_models
+def test_saved_models_are_valid_distributions():
+    from nflsim.engine.state import GameState, Phase
+    from nflsim.models.registry import build_models
+    from nflsim.models.trained import available_trained
+
+    M = build_models()
+    names = [n for n in M if type(M[n]).__name__ == "TrainedModel"]
+    assert set(names) == set(available_trained())
+    rng = np.random.default_rng(3)
+    for _ in range(200):
+        s = GameState(home="H", away="A", possession="H", down=int(rng.integers(1, 5)), yardline_100=int(rng.integers(1, 100)),
+                      qtr=int(rng.integers(1, 6)), game_seconds_remaining=int(rng.integers(0, 3601)), phase=Phase.SCRIMMAGE)
+        s.ydstogo = int(min(rng.integers(1, 21), s.yardline_100))
+        s.score = {"H": int(rng.integers(0, 40)), "A": int(rng.integers(0, 40))}
+        extra = {"air_yards": int(rng.integers(-5, 40)), "distance": int(rng.integers(18, 70)), "play_type": "run",
+                 "yards": int(rng.integers(-10, 30)), "clock_stopper": True, "play_was_pass": False, "out_of_bounds": False,
+                 "diff_after_td": int(rng.integers(-20, 21))}
+        for n in names:
+            p = M[n].proba(s, extra)
+            assert abs(p.sum() - 1) < 1e-9 and p.min() >= 0, n
+            assert M[n].sample(rng, s, extra) in M[n].classes
+
+
+@needs_models
+def test_sanity_scenarios_down_10_passes_up_10_runs():
+    """Phase 2 acceptance: down 10 with 3:00 left in Q4 passes > 80%; up 10 runs > 60% (in simulation)."""
+    from nflsim.engine.boxscore import BoxScore
+    from nflsim.engine.scrimmage import step
+    from nflsim.engine.state import GameState, Phase
+    from nflsim.models.registry import build_models
+
+    M = build_models()
+    rng = np.random.default_rng(11)
+
+    def drive_mix(diff: int, n: int = 300) -> float:
+        passes = runs = 0
+        for _ in range(n):
+            s = GameState(home="H", away="A", possession="H", down=1, ydstogo=10, yardline_100=75, qtr=4,
+                          game_seconds_remaining=180, phase=Phase.SCRIMMAGE, score={"H": 20 + diff, "A": 20})
+            box = BoxScore("H", "A")
+            while s.phase == Phase.SCRIMMAGE and s.possession == "H" and s.game_seconds_remaining > 0:
+                play = step(s, rng, M, box)
+                if play and play["type"] == "pass":
+                    passes += 1
+                elif play and play["type"] in ("run", "kneel"):
+                    runs += 1
+        return passes / (passes + runs)
+
+    assert drive_mix(-10) > 0.80
+    assert 1 - drive_mix(+10) > 0.60

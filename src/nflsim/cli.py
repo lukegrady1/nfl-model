@@ -52,17 +52,35 @@ def sim_game(
     seed: int | None = typer.Option(None, help="RNG seed (defaults to settings.yaml seed)"),
     playoff: bool = typer.Option(False, help="Use playoff overtime rules"),
     neutral: bool = typer.Option(False, help="Neutral site"),
+    tables_only: bool = typer.Option(False, help="Use the Phase 1 lookup tables for every decision"),
 ) -> None:
     """Simulate one matchup with the reference engine and print a summary (Phase 1)."""
     from nflsim.sim.runner import sim_matchup_summary
 
-    sim_matchup_summary(home, away, n, seed=seed if seed is not None else settings()["seed"], playoff=playoff, neutral=neutral)
+    sim_matchup_summary(home, away, n, seed=seed if seed is not None else settings()["seed"], playoff=playoff,
+                        neutral=neutral, tables_only=tables_only)
 
 
 @app.command()
-def train() -> None:
-    """Train all decision models (Phase 2)."""
-    _not_implemented("2")
+def train(
+    models: str = typer.Option("", help="Comma-separated model names (default: all trainable)"),
+    evaluate_only: bool = typer.Option(False, help="Rebuild the report from saved models without retraining"),
+) -> None:
+    """Train all decision models and write artifacts/models/report.md (Phase 2)."""
+    from nflsim.models.train import train_all
+
+    train_all([m.strip() for m in models.split(",") if m.strip()] or None, evaluate_only=evaluate_only)
+
+
+@app.command("swap-check")
+def swap_check_cmd(
+    n: int = typer.Option(2000, help="Simulations per step"),
+    seed: int | None = typer.Option(None),
+) -> None:
+    """Phase 2: re-run the Phase 1 league-average check after swapping in each trained model."""
+    from nflsim.sim.runner import swap_check
+
+    typer.echo(swap_check(n, seed))
 
 
 @app.command()

@@ -66,7 +66,7 @@ def test_table_models_give_distributions_for_random_states():
         s.ot_state.seconds_remaining = int(rng.integers(0, 601))
         extra = {"air_bin": int(rng.integers(0, 7)), "play_type_idx": int(rng.integers(0, 4)), "distance": int(rng.integers(18, 80)),
                  "diff_after_td": int(rng.integers(-20, 21)), "clock_stopper": bool(rng.integers(0, 2)),
-                 "offense_diff": int(rng.integers(-20, 21)), "under_two": bool(rng.integers(0, 2))}
+                 "offense_diff": int(rng.integers(-20, 21)), "under_two": bool(rng.integers(0, 2)), "side_idx": int(rng.integers(0, 2))}
         for name, m in M.items():
             p = m.proba(s, extra)
             assert abs(p.sum() - 1) < 1e-9 and p.min() >= 0, name
