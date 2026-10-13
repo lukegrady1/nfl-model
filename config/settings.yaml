@@ -1,0 +1,29 @@
+seed: 20261013
+training_seasons: [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]
+table_seasons: [2021, 2022, 2023, 2024, 2025]   # Phase 1 lookup tables (regular season only)
+kickoff_seasons: [2025]          # kickoff rules changed recently; only use current-rule seasons
+sims_per_game: 10000
+min_cell_plays: 200              # lookup-table cells with fewer plays are merged with a neighbor
+regular_season_ot:
+  period_seconds: 600
+  both_teams_possess: true
+  ties_allowed: true
+  timeouts: 2
+playoff_ot:
+  period_seconds: 900
+  both_teams_possess: true
+  ties_allowed: false
+  timeouts: 3
+team_strength:
+  half_life_games: 8
+  prior_season_regression: 0.33
+player_shrinkage_k: 50            # pseudo-plays toward position average
+spread_lines: {min: -20.5, max: 20.5, step: 0.5}
+total_lines: {min: 30.5, max: 60.5, step: 0.5}
+edge_flag_threshold: 0.10         # flag model-vs-market gaps larger than 10 points for review
+assumed_hold_one_sided: 0.08
+engine:
+  kneel_seconds: 40               # clock runoff per kneel-down
+  kneel_seconds_per_down: 40      # kneel if remaining time < this * downs_left + opponent timeouts * ~? (see engine)
+  timeout_play_seconds: [4, 8]    # play duration when a timeout follows (uniform)
+  free_kick_default_yardline: 60  # receiver's yardline_100 after a safety if data is thin

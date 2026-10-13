@@ -1,0 +1,41 @@
+[project]
+name = "nflsim"
+version = "0.1.0"
+description = "Play-by-play NFL Monte Carlo simulation engine with fair-odds output"
+authors = [
+    { name = "Luke Grady", email = "lukegrady9@outlook.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "jinja2>=3.1.6",
+    "matplotlib>=3.11.2",
+    "nflreadpy>=0.1.5",
+    "numba>=0.68.0",
+    "numpy>=2.5.4",
+    "polars>=2.0.0",
+    "pyarrow>=26.0.0",
+    "pyyaml>=6.0.3",
+    "requests>=2.34.2",
+    "scikit-learn>=1.9.1",
+    "typer>=0.27.3",
+]
+
+[project.scripts]
+nflsim = "nflsim.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "nflsim"
+module-root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+]
