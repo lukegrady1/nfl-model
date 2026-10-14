@@ -139,9 +139,17 @@ def phase3_check(
 
 
 @app.command()
-def simulate(season: int = typer.Option(...), week: int = typer.Option(...)) -> None:
-    """Simulate all games in a week and write fair odds (Phase 5)."""
-    _not_implemented("5")
+def simulate(
+    season: int = typer.Option(...),
+    week: int = typer.Option(...),
+    sims: int | None = typer.Option(None, help="Simulations per game (default settings.sims_per_game)"),
+    seed: int | None = typer.Option(None),
+    include_played: bool = typer.Option(False, help="Also simulate games that already have a result (backfills)"),
+) -> None:
+    """Simulate all games in a week with the fast engine and write fair odds (Phase 5)."""
+    from nflsim.sim.runner import simulate_week
+
+    simulate_week(season, week, sims, seed, include_played)
 
 
 @app.command()

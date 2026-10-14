@@ -170,3 +170,66 @@ def swap_check(n: int = 2000, seed: int | None = None, names: list[str] | None =
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     (OUTPUTS_DIR / f"phase2_swap_check_{n}.md").write_text(table + "\n")
     return table
+
+
+# ---- Phase 5, step 5.2: simulate a week with the fast engine and write the fair-odds tables -----------------------
+def simulate_week(season: int, week: int, sims: int | None = None, seed: int | None = None, include_played: bool = False,
+                  out_dir=None) -> "pl.DataFrame":
+    import json
+
+    from nflsim.config import OUTPUTS_DIR, settings as _settings
+    from nflsim.data.clean import load_schedules
+    from nflsim.features.weather import load_weather
+    from nflsim.models.registry import default_models
+    from nflsim.sim.aggregate import game_markets, player_markets, player_markets_frame
+    from nflsim.sim.fast_engine import FastModels, simulate_games
+    from nflsim.sim.game_inputs import WeekInputs
+    from nflsim.sim.pack import pack_game, pack_models
+    from nflsim.sim.season import game_seed
+
+    s = _settings()
+    sims = sims or s["sims_per_game"]
+    seed = seed if seed is not None else s["seed"]
+    out_dir = out_dir or (OUTPUTS_DIR / f"{season}_wk{week}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sched = load_schedules().filter((pl.col("season") == season) & (pl.col("week") == week) & (pl.col("game_type") != "PRE"))
+    if not include_played:
+        sched = sched.filter(pl.col("result").is_null())
+    if sched.height == 0:
+        typer.echo(f"no games to simulate for {season} week {week}" + ("" if include_played else " (all played; use --include-played)"))
+        return pl.DataFrame()
+    FM = FastModels(pack_models(default_models()))
+    wi = WeekInputs(season, week)
+    weather = load_weather(season, week)
+    game_rows, prop_rows = [], []
+    t0 = time.perf_counter()
+    for g in sched.iter_rows(named=True):
+        gid, home, away = g["game_id"], g["home_team"], g["away_team"]
+        w = weather.get(gid) or {"roof_dome": 1 if g.get("roof") in ("dome", "closed") else 0, "wind": g.get("wind")}
+        ctx = wi.context(home, away, w)
+        G = pack_game(ctx, home, away, neutral=g.get("location") == "Neutral", playoff=g["game_type"] != "REG")
+        gs = game_seed(seed, gid)
+        h, a, ot, ts, ps = simulate_games(sims, gs, FM, G)
+        n_max = G.eff.shape[1]
+        ids = [f"{home}:{pid}" for pid in G.player_ids[0]] + [""] * (n_max - len(G.player_ids[0])) + \
+              [f"{away}:{pid}" for pid in G.player_ids[1]] + [""] * (n_max - len(G.player_ids[1]))
+        np.savez_compressed(out_dir / f"sims_{gid}.npz", home_score=h, away_score=a, went_ot=ot, team_stats=ts, player_stats=ps,
+                            player_ids=np.array(ids), seed=gs)
+        game_rows += game_markets(gid, home, away, h, a, ot)
+        for side, team in ((0, home), (1, away)):
+            tp = ctx.players.get(team)
+            for k, pid in enumerate(G.player_ids[side]):
+                prop_rows += player_markets(gid, team, pid, tp.names.get(pid, pid), tp.players[pid]["position"], ps[:, side * n_max + k, :])
+        typer.echo(f"  {gid}: P(home) {float((h > a).mean()):.3f}  fair spread {np.median(h - a):+.1f}  total {float((h + a).mean()):.1f}")
+    for line in wi.blend_log:
+        typer.echo(f"  qb blend: {line}")
+    fair = pl.DataFrame(game_rows, infer_schema_length=None)
+    fair.write_parquet(out_dir / "fair_odds.parquet")
+    props = player_markets_frame(prop_rows)
+    if props.height:
+        props.write_parquet(out_dir / "player_props.parquet")
+    meta = {"season": season, "week": week, "sims": sims, "seed": seed, "games": sched["game_id"].to_list(),
+            "elapsed_s": round(time.perf_counter() - t0, 1), "qb_blends": wi.blend_log}
+    (out_dir / "run.json").write_text(json.dumps(meta, indent=1))
+    typer.echo(f"{sched.height} games x {sims} sims in {time.perf_counter() - t0:.1f}s -> {out_dir}")
+    return fair

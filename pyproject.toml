@@ -17,6 +17,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
     "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
     "typer>=0.27.3",
 ]
 
@@ -33,6 +34,8 @@ module-root = "src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: long-running acceptance tests (run explicitly)"]
+addopts = "-m 'not slow'"
 
 [dependency-groups]
 dev = [

@@ -7,8 +7,8 @@
 | 1 Engine | done | a62fa5f |
 | 2 Models | done | 725a6f1 |
 | 3 Team strength | done | 6eafd8b |
-| 4 Players | done | (this commit) |
-| 5 Scale + fair odds | not started | |
+| 4 Players | done | 7ecc830 |
+| 5 Scale + fair odds | done | (this commit) |
 | 6 FanDuel compare | not started | |
 | 7 Backtest | not started | |
 
@@ -346,3 +346,90 @@ efficiencies / ratings, 2,000 sims per game, 40 minutes on 10 cores). The run pr
 | std of sim margins within +/-25% of spread std | 0.874 | yes |
 
 - [x] `uv run pytest`: 48 passed.
+
+## Phase 5 acceptance (2026-10-13)
+
+### Built
+
+- `sim/pack.py`: every decision packed as a dense cumulative table (back-off baked in) or a trained-model array set;
+  each game's context (scaled ratings, weather, actives, shares, band fits, efficiencies) packed into fixed-shape arrays.
+- `sim/fast_features.py` + `sim/fast_engine.py`: the Numba port of the reference engine with one RNG stream per
+  simulation (`prange`), returning `home_score[n]`, `away_score[n]`, `went_ot[n]`, team stats and
+  `player_stats[n, players, 16]`.
+- `sim/aggregate.py`: moneyline (with tie and tie-as-push), spreads -20.5..+20.5, totals 30.5..60.5, team totals,
+  player props (percentiles 5-95 and P(over) at every half-point line), anytime TD, overtime; `se` beside every
+  probability; fair American odds.
+- `nflsim simulate --season S --week W [--include-played]`: writes `sims_<game_id>.npz`, `fair_odds.parquet`,
+  `player_props.parquet` and `run.json` under `data/outputs/<season>_wk<week>/`.
+- Exact-equality tests of the jitted feature builder and probabilities against the Python models
+  (`tests/test_fast_engine.py`); the equivalence test is `tests/test_equivalence.py` (marked slow, run explicitly).
+
+### Checks
+
+- [x] **Equivalence test** (reference engine vs fast engine, 20,000 sims each, five 2025 matchups with full player
+  inputs): every mean within 2 SE, both KS tests above 0.01 for every matchup.
+
+| Matchup | Stat | Reference mean | Fast mean | Diff | SE | Within 2 SE |
+|---|---|---|---|---|---|---|
+| TB@BUF wk11 | home_score | 22.919 | 23.020 | +0.101 | 0.089 | yes |
+| TB@BUF wk11 | away_score | 19.282 | 19.274 | -0.008 | 0.085 | yes |
+| TB@BUF wk11 | margin | 3.638 | 3.746 | +0.109 | 0.125 | yes |
+| TB@BUF wk11 | total | 42.201 | 42.294 | +0.093 | 0.121 | yes |
+| TB@BUF wk11 | home_qb_pass_yds | 214.317 | 214.634 | +0.317 | 0.565 | yes |
+| TB@BUF wk11 | home_qb_att | 29.655 | 29.652 | -0.003 | 0.062 | yes |
+| TB@BUF wk11 | away_qb_pass_yds | 221.317 | 221.353 | +0.036 | 0.581 | yes |
+| TB@BUF wk11 | home_wr1_rec_yds | 54.447 | 54.442 | -0.005 | 0.315 | yes |
+| TB@BUF wk11 | home_rb1_rush_yds | 78.575 | 78.641 | +0.066 | 0.365 | yes |
+| KC@DEN wk11 | home_score | 23.384 | 23.382 | -0.002 | 0.092 | yes |
+| KC@DEN wk11 | away_score | 20.696 | 20.732 | +0.036 | 0.091 | yes |
+| KC@DEN wk11 | margin | 2.688 | 2.650 | -0.038 | 0.133 | yes |
+| KC@DEN wk11 | total | 44.080 | 44.114 | +0.035 | 0.125 | yes |
+| KC@DEN wk11 | home_qb_pass_yds | 243.194 | 242.802 | -0.392 | 0.600 | yes |
+| KC@DEN wk11 | home_qb_att | 36.359 | 36.318 | -0.041 | 0.070 | yes |
+| KC@DEN wk11 | away_qb_pass_yds | 263.165 | 262.989 | -0.176 | 0.629 | yes |
+| KC@DEN wk11 | home_wr1_rec_yds | 50.404 | 50.577 | +0.173 | 0.316 | yes |
+| KC@DEN wk11 | home_rb1_rush_yds | 41.378 | 41.408 | +0.030 | 0.239 | yes |
+| BUF@HOU wk12 | home_score | 20.983 | 20.870 | -0.113 | 0.088 | yes |
+| BUF@HOU wk12 | away_score | 19.898 | 20.032 | +0.134 | 0.087 | yes |
+| BUF@HOU wk12 | margin | 1.085 | 0.838 | -0.247 | 0.130 | yes |
+| BUF@HOU wk12 | total | 40.881 | 40.903 | +0.022 | 0.119 | yes |
+| BUF@HOU wk12 | home_qb_pass_yds | 238.833 | 238.242 | -0.592 | 0.595 | yes |
+| BUF@HOU wk12 | home_qb_att | 35.282 | 35.320 | +0.038 | 0.067 | yes |
+| BUF@HOU wk12 | away_qb_pass_yds | 204.733 | 203.830 | -0.903 | 0.569 | yes |
+| BUF@HOU wk12 | home_wr1_rec_yds | 64.991 | 64.540 | -0.451 | 0.357 | yes |
+| BUF@HOU wk12 | home_rb1_rush_yds | 43.375 | 43.379 | +0.003 | 0.241 | yes |
+| IND@KC wk12 | home_score | 24.857 | 24.794 | -0.063 | 0.095 | yes |
+| IND@KC wk12 | away_score | 24.722 | 24.625 | -0.097 | 0.095 | yes |
+| IND@KC wk12 | margin | 0.135 | 0.169 | +0.034 | 0.139 | yes |
+| IND@KC wk12 | total | 49.578 | 49.418 | -0.160 | 0.130 | yes |
+| IND@KC wk12 | home_qb_pass_yds | 289.503 | 289.338 | -0.165 | 0.644 | yes |
+| IND@KC wk12 | home_qb_att | 40.718 | 40.747 | +0.029 | 0.070 | yes |
+| IND@KC wk12 | away_qb_pass_yds | 254.091 | 254.482 | +0.391 | 0.615 | yes |
+| IND@KC wk12 | home_wr1_rec_yds | 64.212 | 63.760 | -0.453 | 0.339 | yes |
+| IND@KC wk12 | home_rb1_rush_yds | 31.389 | 31.557 | +0.169 | 0.211 | yes |
+| NO@LA wk9 | home_score | 27.328 | 27.266 | -0.062 | 0.093 | yes |
+| NO@LA wk9 | away_score | 15.509 | 15.535 | +0.026 | 0.082 | yes |
+| NO@LA wk9 | margin | 11.819 | 11.731 | -0.088 | 0.128 | yes |
+| NO@LA wk9 | total | 42.837 | 42.802 | -0.035 | 0.120 | yes |
+| NO@LA wk9 | home_qb_pass_yds | 281.263 | 280.257 | -1.006 | 0.623 | yes |
+| NO@LA wk9 | home_qb_att | 36.490 | 36.490 | +0.000 | 0.067 | yes |
+| NO@LA wk9 | away_qb_pass_yds | 196.567 | 195.762 | -0.805 | 0.570 | yes |
+| NO@LA wk9 | home_wr1_rec_yds | 90.790 | 90.368 | -0.422 | 0.414 | yes |
+| NO@LA wk9 | home_rb1_rush_yds | 64.542 | 64.590 | +0.048 | 0.311 | yes |
+
+| Matchup | KS p (margin) | KS p (total) | Fast engine 20,000 sims |
+|---|---|---|---|
+| TB@BUF wk11 | 0.455 | 0.332 | 20.0s |
+| KC@DEN wk11 | 0.750 | 0.888 | 25.2s |
+| BUF@HOU wk12 | 0.176 | 0.440 | 19.5s |
+| IND@KC wk12 | 0.921 | 0.525 | 25.3s |
+| NO@LA wk9 | 0.899 | 0.996 | 26.8s |
+
+- [x] **Speed:** 10,000 sims of one game in 10.3 s on the M5 (10 threads), excluding the one-time compile of about
+  40 s (cached on disk after the first run). The week run below averaged 13 s per game. The reference engine is
+  about 25 ms per game, so the fast engine is roughly 25x faster per core and 250x with threads.
+- [x] `nflsim simulate --season 2025 --week 10 --include-played`: 14 games x 10,000 sims in 185 s;
+  `fair_odds.parquet` has 7,952 rows (14 games), `player_props.parquet` 43,591 rows (371 players), one `.npz` per game.
+- [x] **Sanity:** for every game P(home win) + P(away win) + P(tie) = 1, P(home covers -L) is monotone in L across all
+  82 spread lines, and P(over T) is monotone in T across all 61 totals.
+- [x] `uv run pytest`: 50 passed (the slow equivalence test deselected by default; run with `-m slow`).
