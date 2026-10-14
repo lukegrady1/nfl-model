@@ -1,0 +1,31 @@
+{
+ "season": 2024,
+ "training_seasons": [
+  2018,
+  2019,
+  2020,
+  2021,
+  2022,
+  2023
+ ],
+ "table_seasons": [
+  2021,
+  2022,
+  2023
+ ],
+ "input_scale": 1.3894,
+ "fixed_C": {
+  "play_call": 1.0,
+  "fourth_down": 1.0,
+  "air_yards": 1.0,
+  "dropback_outcome": 1.0,
+  "throw_outcome": 0.01,
+  "yac": 10.0,
+  "rush_yards": 0.1,
+  "fumble_lost": 10.0,
+  "fg_make": 1.0,
+  "pat_choice": 10.0,
+  "clock_runoff": 10.0,
+  "presnap_penalty": 0.1
+ }
+}

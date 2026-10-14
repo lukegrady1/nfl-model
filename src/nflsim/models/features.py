@@ -13,8 +13,9 @@ import numpy as np
 from nflsim.config import settings
 
 DEFAULT_WIND = 8.0          # mean wind on outdoor plays 2018-2025 (8.2 mph); used when no weather input is given
+import os as _os
 ERA_REF_SEASON = 2025       # era feature = (season - 2025) / 5, clipped at the last training season for simulation
-ERA_MAX_SEASON = 2025
+ERA_MAX_SEASON = int(_os.environ.get("NFLSIM_ERA_MAX", 2025))
 PLAY_TYPES = ["completion", "sack", "scramble", "run"]   # fumble model one-hot order (= Phase 1 play_type_idx)
 
 

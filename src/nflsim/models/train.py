@@ -185,7 +185,7 @@ def within_distributions(df: pl.DataFrame, exact_col: str, classes: list, bin_fn
     return out
 
 
-def train_model(name: str, plays: pl.DataFrame, write: bool = True, team: bool = False, out_dir=None) -> dict:
+def train_model(name: str, plays: pl.DataFrame, write: bool = True, team: bool = False, out_dir=None, fixed_C: float | None = None) -> dict:
     classes = CLASSES[name]
     df, _, exact = dataset(name, plays)
     seasons = sorted(df["season"].unique().to_list())
@@ -199,7 +199,7 @@ def train_model(name: str, plays: pl.DataFrame, write: bool = True, team: bool =
     mean, std = standardize_params(X[~val])
     Z = (X - mean) / std
     best = None
-    for C in C_GRID:
+    for C in ([fixed_C] if fixed_C is not None else C_GRID):
         clf = fit_logreg(Z[~val], y[~val], C, len(classes))
         ll = log_loss(y[val], clf.predict_proba(Z[val]), labels=list(range(len(classes))))
         typer.echo(f"  C={C:<5} val log loss {ll:.5f}")
@@ -425,16 +425,19 @@ def write_report(results: dict[str, dict], fits: dict[str, dict]) -> str:
     return text
 
 
-def train_all(names: list[str] | None = None, evaluate_only: bool = False, team: bool = True) -> dict:
+def train_all(names: list[str] | None = None, evaluate_only: bool = False, team: bool = True, out_dir=None,
+              fixed_C: dict | None = None, report: bool = True) -> dict:
     """Train `names` (default all), then evaluate and report every model that has saved specs.
-    team=True (Phase 3 onward) joins the as-of team ratings and adds the team features to the models in TEAM_FEATURES."""
-    from nflsim.models.features import TEAM_FEATURES, WEATHER_MODELS
+    team=True (Phase 3 onward) joins the as-of team ratings and adds the team features to the models in TEAM_FEATURES.
+    Backtests pass out_dir (artifacts/models/backtest_<S>) and fixed_C (the C chosen in the main run)."""
+    from nflsim.models.features import PLAYER_FEATURES, TEAM_FEATURES, WEATHER_MODELS
 
     to_train = [] if evaluate_only else (names or TRAINABLE)
     plays = training_plays(team=team)
-    from nflsim.models.features import PLAYER_FEATURES
-
-    fits = {name: train_model(name, plays, team=team and (name in TEAM_FEATURES or name in WEATHER_MODELS or name in PLAYER_FEATURES)) for name in to_train}
+    fits = {name: train_model(name, plays, team=team and (name in TEAM_FEATURES or name in WEATHER_MODELS or name in PLAYER_FEATURES),
+                              out_dir=out_dir, fixed_C=(fixed_C or {}).get(name)) for name in to_train}
+    if not report:
+        return {name: fit["spec"] for name, fit in fits.items()}
     for name in TRAINABLE:
         if name not in fits and model_path(name).exists() and model_path(name, MODELS_DIR / "val").exists():
             fits[name] = reload_fit(name, plays)

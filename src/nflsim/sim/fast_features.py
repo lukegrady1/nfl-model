@@ -13,7 +13,8 @@ from nflsim.sim.pack import MAX_CLASSES, SLOT, PackedModels
 MAX_FEATURES = 160
 S_PLAY_CALL, S_FOURTH, S_AIR, S_DROPBACK, S_THROW, S_YAC = SLOT["play_call"], SLOT["fourth_down"], SLOT["air_yards"], SLOT["dropback_outcome"], SLOT["throw_outcome"], SLOT["yac"]
 S_RUSH, S_FUMBLE, S_FG, S_PAT, S_CLOCK, S_PENALTY = SLOT["rush_yards"], SLOT["fumble_lost"], SLOT["fg_make"], SLOT["pat_choice"], SLOT["clock_runoff"], SLOT["presnap_penalty"]
-ERA_REF, ERA_MAX, DEFAULT_WIND = 2025.0, 2025.0, 8.0
+import os as _os
+ERA_REF, ERA_MAX, DEFAULT_WIND = 2025.0, float(_os.environ.get("NFLSIM_ERA_MAX", 2025)), 8.0
 
 
 # ---- RNG: PCG32-style 64-bit LCG with xorshift output; one state per simulation --------------------------------

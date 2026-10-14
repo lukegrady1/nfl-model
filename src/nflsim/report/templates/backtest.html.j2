@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nflsim backtest</title>
+<style>
+  body { margin:0; padding:16px; font:14px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color:#1b1b1b; background:#fff; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:16px; margin:24px 0 8px; } h3 { font-size:14px; margin:14px 0 4px; }
+  table { border-collapse:collapse; font-variant-numeric:tabular-nums; margin-bottom:8px; }
+  th, td { padding:4px 10px; border-bottom:1px solid #e4e4e4; text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; } th { background:#f6f6f6; }
+  .meta { color:#666; font-size:12px; } .rules { background:#fff8e6; border:1px solid #f0d890; padding:8px 12px; }
+  .rules li { margin:4px 0; } .grid { display:flex; gap:24px; flex-wrap:wrap; } .wrap { overflow-x:auto; }
+  .good { color:#1a7f37; } .bad { color:#b42318; } p.summary { font-size:15px; border-left:4px solid #2b5fb3; padding-left:10px; }
+</style></head>
+<body>
+<h1>nflsim walk-forward backtest</h1>
+<div class="meta">seasons {{ seasons|join(", ") }} · {{ n_games }} regular-season games · actives variant "{{ variant }}" (the "{{ alt }}" variant is summarized below) · generated {{ generated }}</div>
+<div class="rules"><strong>Rules for reading this report</strong><ol>{% for r in rules %}<li>{{ r }}</li>{% endfor %}</ol></div>
+
+<h2>Win probability vs the no-vig closing moneyline (ties excluded)</h2>
+<div class="wrap"><table><thead><tr><th>Seasons</th><th>Games</th><th>Log loss: model</th><th>market</th><th>Gap</th><th>Brier: model</th><th>market</th><th>Home win rate</th></tr></thead><tbody>
+{% for S, m in per_season.items() %}<tr><td>{{ S }}</td><td>{{ m.win_prob.n }}</td><td>{{ "%.4f"|format(m.win_prob.log_loss_model) }}</td><td>{{ "%.4f"|format(m.win_prob.log_loss_market) }}</td><td class="{{ 'good' if m.win_prob.log_loss_model - m.win_prob.log_loss_market <= 0.01 else 'bad' }}">{{ "%+.4f"|format(m.win_prob.log_loss_model - m.win_prob.log_loss_market) }}</td><td>{{ "%.4f"|format(m.win_prob.brier_model) }}</td><td>{{ "%.4f"|format(m.win_prob.brier_market) }}</td><td>{{ "%.1f%%"|format(m.win_prob.home_win_rate*100) }}</td></tr>{% endfor %}
+<tr><th>all</th><th>{{ all_m.win_prob.n }}</th><th>{{ "%.4f"|format(all_m.win_prob.log_loss_model) }}</th><th>{{ "%.4f"|format(all_m.win_prob.log_loss_market) }}</th><th class="{{ 'good' if all_m.win_prob.log_loss_model - all_m.win_prob.log_loss_market <= 0.01 else 'bad' }}">{{ "%+.4f"|format(all_m.win_prob.log_loss_model - all_m.win_prob.log_loss_market) }}</th><th>{{ "%.4f"|format(all_m.win_prob.brier_model) }}</th><th>{{ "%.4f"|format(all_m.win_prob.brier_market) }}</th><th>{{ "%.1f%%"|format(all_m.win_prob.home_win_rate*100) }}</th></tr>
+</tbody></table></div>
+
+<h2>Margin and total errors vs the closing spread and total</h2>
+<div class="wrap"><table><thead><tr><th>Seasons</th><th>Margin MAE: model</th><th>market</th><th>Gap</th><th>Total MAE: model</th><th>market</th><th>Gap</th><th>Model total bias</th><th>Market total bias</th><th>corr(margin, result): model</th><th>market</th><th>corr(model, market) margin</th><th>total</th></tr></thead><tbody>
+{% for S, m in per_season.items() %}<tr><td>{{ S }}</td><td>{{ "%.2f"|format(m.errors.margin_mae_model) }}</td><td>{{ "%.2f"|format(m.errors.margin_mae_market) }}</td><td class="{{ 'good' if m.errors.margin_mae_model - m.errors.margin_mae_market <= 0.3 else 'bad' }}">{{ "%+.2f"|format(m.errors.margin_mae_model - m.errors.margin_mae_market) }}</td><td>{{ "%.2f"|format(m.errors.total_mae_model) }}</td><td>{{ "%.2f"|format(m.errors.total_mae_market) }}</td><td class="{{ 'good' if m.errors.total_mae_model - m.errors.total_mae_market <= 0.3 else 'bad' }}">{{ "%+.2f"|format(m.errors.total_mae_model - m.errors.total_mae_market) }}</td><td>{{ "%+.2f"|format(m.errors.total_bias_model) }}</td><td>{{ "%+.2f"|format(m.errors.total_bias_market) }}</td><td>{{ "%.3f"|format(m.errors.corr_margin_model) }}</td><td>{{ "%.3f"|format(m.errors.corr_margin_market) }}</td><td>{{ "%.3f"|format(m.errors.corr_model_market_margin) }}</td><td>{{ "%.3f"|format(m.errors.corr_model_market_total) }}</td></tr>{% endfor %}
+<tr><th>all</th><th>{{ "%.2f"|format(all_m.errors.margin_mae_model) }}</th><th>{{ "%.2f"|format(all_m.errors.margin_mae_market) }}</th><th class="{{ 'good' if all_m.errors.margin_mae_model - all_m.errors.margin_mae_market <= 0.3 else 'bad' }}">{{ "%+.2f"|format(all_m.errors.margin_mae_model - all_m.errors.margin_mae_market) }}</th><th>{{ "%.2f"|format(all_m.errors.total_mae_model) }}</th><th>{{ "%.2f"|format(all_m.errors.total_mae_market) }}</th><th class="{{ 'good' if all_m.errors.total_mae_model - all_m.errors.total_mae_market <= 0.3 else 'bad' }}">{{ "%+.2f"|format(all_m.errors.total_mae_model - all_m.errors.total_mae_market) }}</th><th>{{ "%+.2f"|format(all_m.errors.total_bias_model) }}</th><th>{{ "%+.2f"|format(all_m.errors.total_bias_market) }}</th><th>{{ "%.3f"|format(all_m.errors.corr_margin_model) }}</th><th>{{ "%.3f"|format(all_m.errors.corr_margin_market) }}</th><th>{{ "%.3f"|format(all_m.errors.corr_model_market_margin) }}</th><th>{{ "%.3f"|format(all_m.errors.corr_model_market_total) }}</th></tr>
+</tbody></table></div>
+{% if other %}<p class="meta">"{{ alt }}" variant (all seasons): log loss {{ "%.4f"|format(other.win_prob.log_loss_model) }} vs market {{ "%.4f"|format(other.win_prob.log_loss_market) }}; margin MAE {{ "%.2f"|format(other.errors.margin_mae_model) }} vs {{ "%.2f"|format(other.errors.margin_mae_market) }}; total MAE {{ "%.2f"|format(other.errors.total_mae_model) }} vs {{ "%.2f"|format(other.errors.total_mae_market) }}.</p>{% endif %}
+
+<h2>Calibration of win probability (all seasons)</h2>
+<div class="grid"><div>{{ reliability_svg|safe }}</div>
+<div class="wrap"><table><thead><tr><th>Bucket</th><th>n</th><th>Mean predicted</th><th>Observed</th><th>Gap</th></tr></thead><tbody>
+{% for r in all_m.reliability %}<tr><td>{{ r.bucket }}</td><td>{{ r.n }}</td><td>{{ "%.3f"|format(r.pred) if r.pred is not none else "" }}</td><td>{{ "%.3f"|format(r.obs) if r.obs is not none else "" }}</td><td>{{ "%+.3f"|format(r.pred - r.obs) if r.pred is not none else "" }}</td></tr>{% endfor %}
+</tbody></table></div></div>
+
+<h2>Disagreement tests (all seasons; pushes removed; 95% Wilson intervals; break-even at -110 is 52.4%)</h2>
+<div class="grid">
+<div><h3>Spreads: ATS when |model margin - closing spread| ≥ t</h3><table><thead><tr><th>t</th><th>Bets</th><th>Pushes</th><th>W-L</th><th>Win rate</th><th>95% CI</th></tr></thead><tbody>
+{% for r in all_m.ats %}<tr><td>{{ r.threshold }}</td><td>{{ r.bets }}</td><td>{{ r.pushes }}</td><td>{{ r.wins }}-{{ r.losses }}</td><td class="{{ 'good' if r.win_rate and r.win_rate > 0.524 else '' }}">{{ "%.1f%%"|format(r.win_rate*100) if r.win_rate is not none else "" }}</td><td>{{ "%.1f%%-%.1f%%"|format(r.ci_low*100, r.ci_high*100) if r.win_rate is not none else "" }}</td></tr>{% endfor %}
+</tbody></table></div>
+<div><h3>Totals: O/U when |model total - closing total| ≥ t</h3><table><thead><tr><th>t</th><th>Bets</th><th>Pushes</th><th>W-L</th><th>Win rate</th><th>95% CI</th></tr></thead><tbody>
+{% for r in all_m.ou %}<tr><td>{{ r.threshold }}</td><td>{{ r.bets }}</td><td>{{ r.pushes }}</td><td>{{ r.wins }}-{{ r.losses }}</td><td class="{{ 'good' if r.win_rate and r.win_rate > 0.524 else '' }}">{{ "%.1f%%"|format(r.win_rate*100) if r.win_rate is not none else "" }}</td><td>{{ "%.1f%%-%.1f%%"|format(r.ci_low*100, r.ci_high*100) if r.win_rate is not none else "" }}</td></tr>{% endfor %}
+</tbody></table></div></div>
+<p class="meta">With 100 bets the interval is about ±10 points; with 50 it is about ±14. A bucket is only interesting if its whole interval sits above 52.4% across seasons.</p>
+<h3>Per season</h3>
+<div class="wrap"><table><thead><tr><th>Season</th><th>Market</th><th>t</th><th>Bets</th><th>W-L</th><th>Win rate</th><th>95% CI</th></tr></thead><tbody>
+{% for S, m in per_season.items() %}{% for kind, rows in [("spread", m.ats), ("total", m.ou)] %}{% for r in rows %}<tr><td>{{ S }}</td><td>{{ kind }}</td><td>{{ r.threshold }}</td><td>{{ r.bets }}</td><td>{{ r.wins }}-{{ r.losses }}</td><td>{{ "%.1f%%"|format(r.win_rate*100) if r.win_rate is not none else "" }}</td><td>{{ "%.1f%%-%.1f%%"|format(r.ci_low*100, r.ci_high*100) if r.win_rate is not none else "" }}</td></tr>{% endfor %}{% endfor %}{% endfor %}
+</tbody></table></div>
+
+<h2>Distribution checks (PIT: where the actual result fell in the model's distribution; uniform = calibrated)</h2>
+<div class="grid">
+<div><h3>Margins</h3>{{ pit_margin_svg|safe }}<div class="meta">n={{ all_m.pit_margin.n }}, KS p={{ "%.3f"|format(all_m.pit_margin.ks_p) }}, mean PIT {{ "%.3f"|format(all_m.pit_margin.mean) }} (0.5 = unbiased), max bucket deviation {{ "%.3f"|format(all_m.pit_margin.max_dev) }}</div></div>
+<div><h3>Totals</h3>{{ pit_total_svg|safe }}<div class="meta">n={{ all_m.pit_total.n }}, KS p={{ "%.3f"|format(all_m.pit_total.ks_p) }}, mean PIT {{ "%.3f"|format(all_m.pit_total.mean) }}, max bucket deviation {{ "%.3f"|format(all_m.pit_total.max_dev) }}</div></div>
+</div>
+
+<h2>Player prop calibration (played variant; players with ≥ 8 games)</h2>
+<div class="wrap"><table><thead><tr><th>Stat</th><th>Player-games</th><th>Below median</th><th>Inside 10-90</th><th>Mean actual</th><th>Mean sim</th><th>PIT KS p</th></tr></thead><tbody>
+{% for k, v in all_m.props.items() %}<tr><td>{{ k }}</td><td>{{ v.n }}</td><td>{{ "%.1f%%"|format(v.below_median*100) }}</td><td>{{ "%.1f%%"|format(v.inside_10_90*100) }}</td><td>{{ "%.2f"|format(v.mean_actual) }}</td><td>{{ "%.2f"|format(v.mean_sim) }}</td><td>{{ "%.3f"|format(v.pit.ks_p) }}</td></tr>{% endfor %}
+</tbody></table></div>
+<div class="grid">{% for k, svg in prop_svgs.items() %}<div><h3>{{ k }}</h3>{{ svg|safe }}</div>{% endfor %}</div>
+<p class="meta">Historical prop lines are not in nflverse, so props are judged on calibration only.</p>
+
+<h2>Summary</h2>
+<p class="summary">{{ summary }}</p>
+</body></html>

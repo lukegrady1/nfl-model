@@ -186,9 +186,21 @@ def report(season: int = typer.Option(...), week: int = typer.Option(...)) -> No
 
 
 @app.command()
-def backtest(seasons: str = typer.Option("2023-2025")) -> None:
-    """Walk-forward evaluation vs closing lines (Phase 7)."""
-    _not_implemented("7")
+def backtest(
+    seasons: str = typer.Option("2023-2025"),
+    sims: int = typer.Option(5000, help="Simulations per game for the 'played' variant"),
+    sims_thursday: int = typer.Option(2000, help="Simulations per game for the injury-report variant"),
+    prepare: bool = typer.Option(True, help="Retrain tables, models and derived tables per season"),
+    simulate: bool = typer.Option(True),
+    report_only: bool = typer.Option(False, help="Only rebuild the report from saved results"),
+) -> None:
+    """Walk-forward evaluation vs closing lines with per-season retraining (Phase 7)."""
+    from nflsim.backtest.report import build_backtest_report
+    from nflsim.backtest.walkforward import walk_forward
+
+    if not report_only:
+        walk_forward(parse_seasons(seasons), sims, sims_thursday, prepare=prepare, simulate=simulate)
+    typer.echo(str(build_backtest_report(parse_seasons(seasons))))
 
 
 if __name__ == "__main__":

@@ -100,3 +100,41 @@ def build_actives(season: int, week: int, eff: pl.DataFrame, write: bool = True,
 def load_actives(season: int, week: int) -> dict:
     with open(INPUTS_DIR / f"actives_{season}_wk{week}.json") as f:
         return json.load(f)
+
+
+# ---- Phase 7: actives from actual participation (isolates model quality from injury guessing) ------------------
+def played_actives(season: int, plays, eff: pl.DataFrame, week: int | None = None) -> dict[int, dict]:
+    """{week: {team: {"players": [...], "starting_qb": id}}} from players who touched the ball or took an offensive
+    snap in that game (snap counts via the players crosswalk), with the game's most-used passer as the starting QB."""
+    from nflsim.features.players import SKILL_POSITIONS, player_crosswalk, qb_id_expr
+
+    p = plays.filter((pl.col("season") == season) & (pl.col("season_type") == "REG"))
+    if week is not None:
+        p = p.filter(pl.col("week") == week)
+    p = p.with_columns(qb_player_id=qb_id_expr())
+    xw = player_crosswalk().select("gsis_id", "pfr_id", "display_name", "position").unique(subset=["gsis_id"])
+    names = {r["gsis_id"]: (r["display_name"], r["position"]) for r in xw.iter_rows(named=True)}
+    touched = pl.concat([
+        p.filter(pl.col("receiver_player_id").is_not_null()).select("week", "posteam", pl.col("receiver_player_id").alias("pid")),
+        p.filter(pl.col("rusher_player_id").is_not_null()).select("week", "posteam", pl.col("rusher_player_id").alias("pid")),
+        p.filter(pl.col("qb_player_id").is_not_null()).select("week", "posteam", pl.col("qb_player_id").alias("pid")),
+        p.filter(pl.col("kicker_player_id").is_not_null()).select("week", "posteam", pl.col("kicker_player_id").alias("pid")),
+    ]).unique()
+    snaps_path = RAW_DIR / f"snap_counts_{season}.parquet"
+    if snaps_path.exists():
+        sc = pl.read_parquet(snaps_path).filter((pl.col("game_type") == "REG") & (pl.col("offense_snaps") > 0))
+        if week is not None:
+            sc = sc.filter(pl.col("week") == week)
+        sc = sc.join(xw.filter(pl.col("pfr_id").is_not_null()).select("gsis_id", "pfr_id"), left_on="pfr_player_id", right_on="pfr_id", how="inner")
+        touched = pl.concat([touched, sc.select(pl.col("week").cast(touched.schema["week"]), pl.col("team").alias("posteam"), pl.col("gsis_id").alias("pid"))]).unique()
+    qbs = p.filter(pl.col("qb_player_id").is_not_null()).group_by("week", "posteam", "qb_player_id").len().sort("len", descending=True)
+    starters = {(r["week"], r["posteam"]): r["qb_player_id"] for r in qbs.unique(subset=["week", "posteam"], keep="first").iter_rows(named=True)}
+    out: dict[int, dict] = {}
+    for r in touched.iter_rows(named=True):
+        name, pos = names.get(r["pid"], (r["pid"], None))
+        if pos not in SKILL_POSITIONS:
+            continue
+        w = int(r["week"])
+        out.setdefault(w, {}).setdefault(r["posteam"], {"players": [], "starting_qb": starters.get((w, r["posteam"])), "warnings": []})
+        out[w][r["posteam"]]["players"].append({"player_id": r["pid"], "name": name, "position": pos, "report_status": None})
+    return out

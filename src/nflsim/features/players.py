@@ -13,11 +13,11 @@ import numpy as np
 import polars as pl
 import typer
 
-from nflsim.config import MODELS_DIR, PROCESSED_DIR, RAW_DIR, settings
+from nflsim.config import DERIVED_DIR, MODELS_DIR, RAW_DIR, settings
 from nflsim.data.clean import load_plays, load_schedules
 
-USAGE_PATH = PROCESSED_DIR / "player_usage.parquet"
-EFF_PATH = PROCESSED_DIR / "player_eff.parquet"
+USAGE_PATH = DERIVED_DIR / "player_usage.parquet"
+EFF_PATH = DERIVED_DIR / "player_eff.parquet"
 SITUATION_MODELS_DIR = MODELS_DIR / "situation"
 SKILL_POSITIONS = ["QB", "RB", "WR", "TE", "K"]
 BANDS = ["short", "intermediate", "deep"]       # air yards < 5, 5-14, >= 15
@@ -254,6 +254,7 @@ def build_player_tables(plays: pl.DataFrame | None = None, write: bool = True) -
     usage_df = effs.select([c for c in usage_cols if c in effs.columns]).sort("season", "week", "team", "player_id")
     eff_df = effs.select(eff_cols).sort("season", "week", "team", "player_id")
     if write:
+        USAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
         usage_df.write_parquet(USAGE_PATH)
         eff_df.write_parquet(EFF_PATH)
         typer.echo(f"player usage: {usage_df.height} rows -> {USAGE_PATH}; efficiency -> {EFF_PATH}")
@@ -269,7 +270,7 @@ def load_player_eff() -> pl.DataFrame:
 
 
 # ---- position-slot priors (step 4.2: rookies / thin history get the slot average) -------------------------------
-PRIORS_PATH = PROCESSED_DIR / "position_priors.parquet"
+PRIORS_PATH = DERIVED_DIR / "position_priors.parquet"
 
 
 def build_position_priors(usage: pl.DataFrame | None = None, write: bool = True) -> pl.DataFrame:
@@ -285,6 +286,7 @@ def build_position_priors(usage: pl.DataFrame | None = None, write: bool = True)
         pl.col("int_target_share").fill_null(0).mean(), pl.col("rz_target_share").fill_null(0).mean(),
         pl.col("rz_carry_share").fill_null(0).mean(), pl.len().alias("n")).sort("position", "slot")
     if write:
+        PRIORS_PATH.parent.mkdir(parents=True, exist_ok=True)
         pri.write_parquet(PRIORS_PATH)
     return pri
 

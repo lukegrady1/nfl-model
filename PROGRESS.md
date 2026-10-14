@@ -9,8 +9,8 @@
 | 3 Team strength | done | 6eafd8b |
 | 4 Players | done | 7ecc830 |
 | 5 Scale + fair odds | done | 3cb740f |
-| 6 FanDuel compare | done | (this commit) |
-| 7 Backtest | not started | |
+| 6 FanDuel compare | done | 84875df |
+| 7 Backtest | done | (this commit) |
 
 ## Setup acceptance (2026-10-13)
 
@@ -472,3 +472,71 @@ Unmatched after the fixes: 4 player names in week 6 (Zavier Scott, Chigoziem Oko
 practice-squad elevations not on the published roster; game-market misses are alternate lines beyond the widened
 ranges. `nflsim week --season 2026 --week 6` ran end to end (ingest refresh, features, 14 games x 10,000 sims,
 pull, compare, report) and printed the report path and the top-15 rows.
+
+## Phase 7 acceptance (2026-10-14)
+
+### Built
+
+- `backtest/walkforward.py`: per test season S, `prepare` rebuilds the Phase 1 tables, the situation-only and full
+  Phase 2-4 models, the team ratings, the player tables and the rating input scale from seasons before S, in a
+  subprocess whose environment points every path at `artifacts/{models,tables}/backtest_<S>` and
+  `data/processed/backtest_<S>`; `simulate` then runs every regular-season game week by week with as-of inputs in two
+  actives variants ("played", from participation, 5,000 sims; "thursday", from the week's injury report, 2,000 sims)
+  and saves games, full margin/total distributions and per-player prop quantiles to `data/outputs/backtest/<S>/`.
+- `backtest/metrics.py` (log loss and Brier vs the no-vig closing moneyline, margin and total MAE vs the closing
+  spread and total, 10-bucket reliability, ATS and O/U disagreement tests at 1.5/2.5/3.5 points with Wilson 95%
+  intervals and the 52.4% break-even, PIT histograms with KS tests, prop calibration), `backtest/report.py` +
+  `templates/backtest.html.j2` (rules at the top, every table per season and pooled, reliability plot, PIT
+  histograms, prop PIT histograms, plain-English summary), `nflsim backtest` (`--prepare`, `--simulate`,
+  `--report-only`), `tests/test_backtest.py` (leakage tests in backtest mode).
+
+### Checks
+
+| Check | Result | Required |
+|---|---|---|
+| Walk-forward for 2023, 2024, 2025 with per-season retraining | ran end to end: prepare 84-96 s, simulate 28-34 min per season (272 games x 2 variants); input scale 1.54 / 1.39 / 1.43 | 3 seasons |
+| Leakage tests in backtest mode (training and table seasons <= S-1, validation season <= S-1, ratings exactly recomputable from games before each as-of date) | 4 passed | pass |
+| Report has every Step 7.2 metric with sample sizes and intervals | yes: `data/outputs/backtest/report.html`, `metrics.json` | yes |
+| `uv run pytest` | 63 passed (1 slow deselected) | |
+
+### Results (played variant, pooled 2023-2025, 815 games with a closing moneyline; 2025 has one tie)
+
+| Metric | Model | Closing line | Gap | Spec's "close" band |
+|---|---|---|---|---|
+| Win-probability log loss | 0.6349 | 0.6081 | +0.0268 (2023 +0.028, 2024 +0.037, 2025 +0.016) | within 0.01 |
+| Brier | 0.2225 | 0.2103 | +0.0122 | |
+| Margin MAE (points) | 10.20 | 9.74 | +0.46 (+0.52, +0.51, +0.34) | within 0.3 |
+| Total MAE (points) | 10.47 | 10.12 | +0.35 (+0.18, +0.69, +0.19) | within 0.3 |
+| Total bias vs actual | -3.19 | -1.07 | model 2.1 points under the market (2024: -4.51 vs -1.48) | |
+| corr(margin, result) | 0.402 | 0.477 | corr(model, market) = 0.844 on margins, 0.763 on totals | |
+
+Disagreement tests, pooled (W-L, win rate, 95% interval; break-even 52.4%):
+
+| Market | >= 1.5 | >= 2.5 | >= 3.5 |
+|---|---|---|---|
+| Spreads (ATS) | 252-261, 49.1% (44.8-53.4), 13 pushes | 166-175, 48.7% (43.4-54.0) | 111-114, 49.3% (42.9-55.8) |
+| Totals (O/U) | 290-280, 50.9% (46.8-55.0) | 208-207, 50.1% (45.3-54.9) | 142-139, 50.5% (44.7-56.3) |
+
+No bucket clears break-even and none is consistent across seasons: totals went 49-36 (57.6%) at >= 3.5 in 2023
+but 56-66 (45.9%) in 2024 and 37-37 in 2025; spreads were below 50% in every season except 2025 at >= 1.5 (50.9%).
+The "thursday" variant is indistinguishable in aggregate (log loss 0.6355, margin MAE 10.17) although it moves
+individual games by 0.5 points on average (38 games by more than a point in 2023), so injury guessing is not the
+limiting factor.
+
+Distribution checks: margin PIT is uniform (KS p = 0.13, mean 0.494, max bucket deviation 0.023), so the margin
+distribution's width is right. Total PIT is not (KS p < 0.001, mean 0.568): 140 of 815 actual totals (17%) landed in
+the model's top decile, the same under-scoring seen in Phases 2-6. Win-probability reliability is sound at the sample
+sizes available (worst bucket 0.4-0.5: predicted 0.45, observed 0.39 on 168 games; 0.8-0.9: 0.84 vs 0.79 on 53).
+
+Props (players with >= 8 games, 31,229 player-games): passing yards are unbiased (mean 230.0 sim vs 229.7 actual, 50.0%
+below the median) but the 10-90 interval covers only 70.8%; rushing yards run 5% low (30.8 vs 32.4), receiving yards
+10% low (27.7 vs 30.6, 42.5% of actuals below the sim median), receptions 7% low (2.6 vs 2.8) with an over-wide
+interval (84.7% inside 10-90). KS p-values are 0 at these sample sizes and carry no information on their own.
+
+### Where the model stands against the closing line
+
+1. The engine is coherent but not yet "close" by the spec's rule: win-probability log loss is 0.027 worse than the no-vig close (band 0.01) and margin MAE is 0.46 points worse (band 0.3), consistently in all three seasons.
+2. Its margins are calibrated in shape (uniform PIT) and track the market (correlation 0.84), so the gap is signal quality, not distribution width; actives from the injury report versus actual participation make no aggregate difference.
+3. Totals are the one clear defect: the model scores 3.2 points under actual, 2.1 under the market, every season, and 17% of actual totals land in its top decile; receiving props carry the same 7-10% shortfall, passing yards do not.
+4. No disagreement bucket beats 52.4% with its interval, and the one strong season (2023 totals, 57.6% at >= 3.5) reversed in 2024, so there is no exploitable edge to study yet.
+5. The next change must target the scoring deficit (totals and receiving volume) on 2018-2022 data and be re-tested on 2023-2025 without touching them; until then every edge in the weekly dashboard is a calibration artifact.

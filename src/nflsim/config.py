@@ -15,14 +15,28 @@ PROCESSED_DIR = DATA_DIR / "processed"
 INPUTS_DIR = DATA_DIR / "inputs"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 ARTIFACTS_DIR = ROOT / "artifacts"
-MODELS_DIR = ARTIFACTS_DIR / "models"
-TABLES_DIR = ARTIFACTS_DIR / "tables"
+# Backtest mode (Phase 7): a walk-forward season runs in a subprocess with these overrides so every model, table and
+# derived (ratings / player) table it touches was built from seasons before the test season.
+import os as _os
+MODELS_DIR = Path(_os.environ.get("NFLSIM_MODELS_DIR", ARTIFACTS_DIR / "models"))
+TABLES_DIR = Path(_os.environ.get("NFLSIM_TABLES_DIR", ARTIFACTS_DIR / "tables"))
+DERIVED_DIR = Path(_os.environ.get("NFLSIM_DERIVED_DIR", PROCESSED_DIR))   # team_ratings / player tables
 
 
 @lru_cache(maxsize=1)
 def settings() -> dict[str, Any]:
     with open(CONFIG_DIR / "settings.yaml") as f:
-        return yaml.safe_load(f)
+        s = yaml.safe_load(f)
+    # backtest overrides (see MODELS_DIR above)
+    if _os.environ.get("NFLSIM_TRAINING_SEASONS"):
+        s["training_seasons"] = parse_seasons(_os.environ["NFLSIM_TRAINING_SEASONS"])
+    if _os.environ.get("NFLSIM_TABLE_SEASONS"):
+        s["table_seasons"] = parse_seasons(_os.environ["NFLSIM_TABLE_SEASONS"])
+    if _os.environ.get("NFLSIM_KICKOFF_SEASONS"):
+        s["kickoff_seasons"] = parse_seasons(_os.environ["NFLSIM_KICKOFF_SEASONS"])
+    if _os.environ.get("NFLSIM_INPUT_SCALE"):
+        s["team_strength"]["input_scale"] = float(_os.environ["NFLSIM_INPUT_SCALE"])
+    return s
 
 
 def team_aliases() -> dict[str, str]:

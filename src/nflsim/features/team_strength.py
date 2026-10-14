@@ -15,10 +15,10 @@ import numpy as np
 import polars as pl
 import typer
 
-from nflsim.config import MODELS_DIR, PROCESSED_DIR, settings
+from nflsim.config import DERIVED_DIR, MODELS_DIR, settings
 from nflsim.data.clean import load_plays, load_schedules
 
-RATINGS_PATH = PROCESSED_DIR / "team_ratings.parquet"
+RATINGS_PATH = DERIVED_DIR / "team_ratings.parquet"
 SITUATION_MODELS_DIR = MODELS_DIR / "situation"
 
 OFFENSE = ["pass_epa", "rush_epa", "proe", "adot", "sack_rate", "cpoe", "explosive_rate", "pace"]
@@ -200,6 +200,7 @@ def ratings_from_game_stats(gs: pl.DataFrame, write: bool = False, sched: pl.Dat
         zexprs.append(pl.when(raw.is_null() | scale.is_null() | (scale == 0)).then(0.0).otherwise((raw - mean) / scale).alias(s))
     df = df.with_columns(zexprs).sort("season", "week", "team")
     if write:
+        RATINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
         df.write_parquet(RATINGS_PATH)
         typer.echo(f"team ratings: {df.height} rows ({df['season'].min()}-{df['season'].max()}) -> {RATINGS_PATH}")
     return df
