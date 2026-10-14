@@ -91,3 +91,29 @@ def test_sanity_scenarios_down_10_passes_up_10_runs():
 
     assert drive_mix(-10) > 0.80
     assert 1 - drive_mix(+10) > 0.60
+
+
+@needs_models
+def test_home_logit_offset_direction():
+    """Phase 3 step 3.3: with the same situation, the home offense completes more and gains more on the ground."""
+    from nflsim.config import settings
+    from nflsim.engine.state import GameState, Phase
+    from nflsim.models.trained import load_trained
+
+    h = settings()["home_logit_offset"]
+    assert h["throw_outcome"] > 0 and h["rush_yards"] > 0
+    throw, rush = load_trained("throw_outcome"), load_trained("rush_yards")
+
+    def state(possession: str, neutral: bool = False) -> GameState:
+        return GameState(home="H", away="A", possession=possession, down=1, ydstogo=10, yardline_100=60, qtr=2,
+                         game_seconds_remaining=2400, phase=Phase.SCRIMMAGE, is_neutral=neutral)
+
+    extra = {"air_yards": 8}
+    p_home, p_away = throw.proba(state("H"), extra), throw.proba(state("A"), extra)
+    assert p_home[throw.classes.index("complete")] > p_away[throw.classes.index("complete")]
+    r_home, r_away = rush.proba(state("H"), {}), rush.proba(state("A"), {})
+    ev_home = sum(p * (int(c) if int(c) < 16 else {16: 20, 25: 32, 40: 45}[int(c)]) for p, c in zip(r_home, rush.classes))
+    ev_away = sum(p * (int(c) if int(c) < 16 else {16: 20, 25: 32, 40: 45}[int(c)]) for p, c in zip(r_away, rush.classes))
+    assert ev_home > ev_away
+    # neutral site: no offset, and is_home = 0 for both, so the two offenses are identical
+    assert np.allclose(throw.proba(state("H", True), extra), throw.proba(state("A", True), extra))

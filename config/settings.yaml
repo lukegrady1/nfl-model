@@ -17,9 +17,14 @@ playoff_ot:
 team_strength:
   half_life_games: 8
   prior_season_regression: 0.33
+  prior_games: 6                  # last season's regressed rating counts as this many games
+  input_scale: 1.43               # simulation-time multiplier on the rating inputs (calibration fitted on 2019-2024, see DECISIONS)
 player_shrinkage_k: 50            # pseudo-plays toward position average
 spread_lines: {min: -20.5, max: 20.5, step: 0.5}
 total_lines: {min: 30.5, max: 60.5, step: 0.5}
+home_logit_offset:                # Phase 3 step 3.3: home offense +h/2, away -h/2 along the model's "good outcome" direction
+  throw_outcome: 0.06
+  rush_yards: 0.06
 edge_flag_threshold: 0.10         # flag model-vs-market gaps larger than 10 points for review
 assumed_hold_one_sided: 0.08
 engine:

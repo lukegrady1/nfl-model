@@ -41,11 +41,21 @@ def _f(col: str) -> pl.Expr:
     return pl.col(col).fill_null(0)
 
 
-def training_plays() -> pl.DataFrame:
+def training_plays(team: bool = False) -> pl.DataFrame:
+    """Training rows; with team=True the as-of team ratings are joined on (posteam|defteam, season, week)."""
     s = settings()
     plays = load_plays().filter(pl.col("season").is_in(s["training_seasons"]) & pl.col("season_type").is_in(["REG", "POST"]))
     loc = load_schedules().select("game_id", neutral=(pl.col("location") == "Neutral"))
-    return plays.join(loc, on="game_id", how="left").with_columns(pl.col("neutral").fill_null(False))
+    plays = plays.join(loc, on="game_id", how="left").with_columns(pl.col("neutral").fill_null(False))
+    if team:
+        from nflsim.features.team_strength import RATINGS, load_team_ratings
+
+        tr = load_team_ratings().select(["team", "season", "week"] + RATINGS)
+        off = tr.rename({"team": "posteam", **{r: f"off_{r}" for r in RATINGS}})
+        deff = tr.rename({"team": "defteam", **{r: f"def_{r}" for r in RATINGS}})
+        plays = plays.join(off, on=["posteam", "season", "week"], how="left").join(deff, on=["defteam", "season", "week"], how="left")
+        plays = plays.with_columns([pl.col(f"off_{r}").fill_null(0.0) for r in RATINGS] + [pl.col(f"def_{r}").fill_null(0.0) for r in RATINGS])
+    return plays
 
 
 def wp_filter(df: pl.DataFrame) -> pl.DataFrame:
@@ -115,6 +125,7 @@ def dataset(name: str, plays: pl.DataFrame) -> tuple[pl.DataFrame, str, str | No
 
 def rows_of(df: pl.DataFrame) -> list[dict]:
     cols = [c for c in ROW_COLS + ["play_type_fumble", "target", "exact"] if c in df.columns]
+    cols += [c for c in df.columns if c.startswith("off_") or c.startswith("def_")]
     return df.select(cols).to_dicts()
 
 
@@ -149,14 +160,15 @@ def within_distributions(df: pl.DataFrame, exact_col: str, classes: list, bin_fn
     return out
 
 
-def train_model(name: str, plays: pl.DataFrame, write: bool = True) -> dict:
+def train_model(name: str, plays: pl.DataFrame, write: bool = True, team: bool = False, out_dir=None) -> dict:
     classes = CLASSES[name]
     df, _, exact = dataset(name, plays)
     seasons = sorted(df["season"].unique().to_list())
     val_season = seasons[-1]
-    names = feature_names(name)
-    typer.echo(f"{name}: {df.height} rows, seasons {seasons[0]}-{seasons[-1]}, validate on {val_season}, {len(names)} features")
-    X = feature_matrix(name, rows_of(df))
+    names = feature_names(name, team)
+    typer.echo(f"{name}: {df.height} rows, seasons {seasons[0]}-{seasons[-1]}, validate on {val_season}, {len(names)} features"
+               + (" (with team ratings)" if team else ""))
+    X = feature_matrix(name, rows_of(df), team)
     y = encode(df, classes)
     val = (df["season"] == val_season).to_numpy()
     mean, std = standardize_params(X[~val])
@@ -179,6 +191,7 @@ def train_model(name: str, plays: pl.DataFrame, write: bool = True) -> dict:
         "coef": clf.coef_.tolist(), "intercept": clf.intercept_.tolist(), "C": C,
         "training_seasons": seasons, "validation_season": val_season, "val_log_loss": float(val_ll),
         "n_rows": int(df.height), "trained_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "team_features": bool(team),
     }
     if exact:
         spec["within"] = within_distributions(df, exact, classes, None)
@@ -186,26 +199,28 @@ def train_model(name: str, plays: pl.DataFrame, write: bool = True) -> dict:
     val_spec = {**spec, "means": mean.tolist(), "stds": std.tolist(), "coef": val_clf.coef_.tolist(),
                 "intercept": val_clf.intercept_.tolist()}
     if write:
-        MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        (MODELS_DIR / "val").mkdir(exist_ok=True)
-        with open(model_path(name), "w") as f:
+        out_dir = out_dir or MODELS_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "val").mkdir(exist_ok=True)
+        with open(model_path(name, out_dir), "w") as f:
             json.dump(spec, f)
-        with open(model_path(name, MODELS_DIR / "val"), "w") as f:
+        with open(model_path(name, out_dir / "val"), "w") as f:
             json.dump(val_spec, f)
     return {"spec": spec, "val_model": TrainedModel(val_spec), "val_df": df.filter(val), "X_val": X[val], "y_val": y[val],
             "y_train": y[~val], "sklearn_val": val_clf, "mean": mean, "std": std}
 
 
-def reload_fit(name: str, plays: pl.DataFrame) -> dict:
+def reload_fit(name: str, plays: pl.DataFrame, directory=None) -> dict:
     """Rebuild the evaluation inputs from the saved specs without retraining."""
-    with open(model_path(name)) as f:
+    directory = directory or MODELS_DIR
+    with open(model_path(name, directory)) as f:
         spec = json.load(f)
-    with open(model_path(name, MODELS_DIR / "val")) as f:
+    with open(model_path(name, directory / "val")) as f:
         val_spec = json.load(f)
     classes = CLASSES[name]
     df, _, _ = dataset(name, plays)
     val = (df["season"] == spec["validation_season"]).to_numpy()
-    X_val = feature_matrix(name, rows_of(df.filter(val)))
+    X_val = feature_matrix(name, rows_of(df.filter(val)), bool(spec.get("team_features", False)))
     y = encode(df, classes)
     return {"spec": spec, "val_model": TrainedModel(val_spec), "val_df": df.filter(val), "X_val": X_val, "y_val": y[val],
             "y_train": y[~val]}
@@ -303,6 +318,15 @@ def evaluate(name: str, fit: dict, tables: dict) -> dict:
         "ll_table": float(log_loss(y, P_table, labels=labels)),
         "ll_const": float(log_loss(y, P_const, labels=labels)),
     }
+    sit_dir = MODELS_DIR / "situation"
+    if fit["spec"].get("team_features") and model_path(name, sit_dir / "val").exists():
+        with open(model_path(name, sit_dir / "val")) as f:
+            sit = TrainedModel(json.load(f))
+        P_sit = sit.proba_from_features(feature_matrix(name, rows, False))
+        if name in ("air_yards", "yac", "rush_yards"):
+            for i, r in enumerate(rows):
+                P_sit[i] = apply_mask(P_sit[i], feasible_mask(name, classes, room_for(name, r["yardline_100"], r.get("air_yards"))))
+        res["ll_situation"] = float(log_loss(y, P_sit, labels=labels))
     # calibration: binary -> P(class 1); multinomial -> probability of the predicted (modal) class
     if K == 2:
         conf, hit = P_model[:, 1], (y == 1).astype(float)
@@ -347,12 +371,13 @@ def write_report(results: dict[str, dict], fits: dict[str, dict]) -> str:
              "(regular season + playoffs), validated on the last season with models fit on the earlier seasons. "
              "Lookup tables for the comparison were rebuilt from 2021 to the season before validation, so no validation "
              "play touches either competitor. Win-probability filter (2%-98%) applied except to the late-game models.", "",
-             "## Summary", "", "| Model | Val rows | Log loss: model | table | constant | Beats table | Beats constant | Calibration (deciles ≥500 within 3 pts) | C |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             "## Summary", "", "| Model | Val rows | Log loss: model | situation-only | table | constant | Beats table | Beats constant | Calibration (deciles ≥500 within 3 pts) | C | Team features |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
     for name, r in results.items():
-        lines.append(f"| {name} | {r['n_val']} | {r['ll_model']:.4f} | {r['ll_table']:.4f} | {r['ll_const']:.4f} | "
+        sit = f"{r['ll_situation']:.4f}" if "ll_situation" in r else ""
+        lines.append(f"| {name} | {r['n_val']} | {r['ll_model']:.4f} | {sit} | {r['ll_table']:.4f} | {r['ll_const']:.4f} | "
                      f"{'yes' if r['ll_model'] < r['ll_table'] else 'NO'} | {'yes' if r['ll_model'] < r['ll_const'] else 'NO'} | "
-                     f"{'yes' if r['calibration_ok'] else 'NO'} | {fits[name]['spec']['C']} |")
+                     f"{'yes' if r['calibration_ok'] else 'NO'} | {fits[name]['spec']['C']} | {'yes' if fits[name]['spec'].get('team_features') else 'no'} |")
     lines.append("")
     lines.append("Spec note: the spec's single `pass_outcome` model (5 classes) is implemented as `dropback_outcome` "
                  "(throw / sack / scramble) followed by `throw_outcome` (complete / incomplete / interception given a throw), "
@@ -374,11 +399,14 @@ def write_report(results: dict[str, dict], fits: dict[str, dict]) -> str:
     return text
 
 
-def train_all(names: list[str] | None = None, evaluate_only: bool = False) -> dict:
-    """Train `names` (default all), then evaluate and report every model that has saved specs."""
+def train_all(names: list[str] | None = None, evaluate_only: bool = False, team: bool = True) -> dict:
+    """Train `names` (default all), then evaluate and report every model that has saved specs.
+    team=True (Phase 3 onward) joins the as-of team ratings and adds the team features to the models in TEAM_FEATURES."""
+    from nflsim.models.features import TEAM_FEATURES, WEATHER_MODELS
+
     to_train = [] if evaluate_only else (names or TRAINABLE)
-    plays = training_plays()
-    fits = {name: train_model(name, plays) for name in to_train}
+    plays = training_plays(team=team)
+    fits = {name: train_model(name, plays, team=team and (name in TEAM_FEATURES or name in WEATHER_MODELS)) for name in to_train}
     for name in TRAINABLE:
         if name not in fits and model_path(name).exists() and model_path(name, MODELS_DIR / "val").exists():
             fits[name] = reload_fit(name, plays)

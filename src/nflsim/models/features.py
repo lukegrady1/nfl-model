@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from nflsim.config import settings
+
 DEFAULT_WIND = 8.0          # mean wind on outdoor plays 2018-2025 (8.2 mph); used when no weather input is given
 ERA_REF_SEASON = 2025       # era feature = (season - 2025) / 5, clipped at the last training season for simulation
 ERA_MAX_SEASON = 2025
@@ -41,6 +43,8 @@ class Situation:
     diff_after_td: int | None = None
     season: int | None = None
     play_kind: str | None = None      # clock model: kickoff / punt / field_goal / penalty / scrimmage
+    off_ratings: dict | None = None   # Phase 3 team z-scores for the offense (missing = league average, 0)
+    def_ratings: dict | None = None
 
 
 # ---- base situation features ---------------------------------------------------------------------------------
@@ -231,17 +235,57 @@ SPECS: dict[str, tuple[list[str], object]] = {
 }
 NO_BASE = {"fumble_lost", "fg_make", "pat_choice"}
 
+# Phase 3 (step 3.2): team ratings per model, (offense ratings, defense ratings). Added only when team=True.
+TEAM_FEATURES: dict[str, tuple[list[str], list[str]]] = {
+    "play_call": (["proe"], []),
+    "fourth_down": (["fourth_aggr"], []),
+    "air_yards": (["adot"], ["pass_epa_allowed"]),
+    "dropback_outcome": (["sack_rate", "pass_epa"], ["sack_rate_forced", "pass_epa_allowed"]),
+    "throw_outcome": (["cpoe", "pass_epa"], ["int_rate_forced", "pass_epa_allowed"]),
+    "yac": (["pass_epa", "explosive_rate"], ["pass_epa_allowed"]),
+    "rush_yards": (["rush_epa", "explosive_rate"], ["rush_epa_allowed"]),
+    "clock_runoff": (["pace"], []),
+}
+# Phase 3 (step 3.4): weather for the passing models (fg_make already has it).
+WEATHER_MODELS = {"throw_outcome", "air_yards"}
 
-def feature_names(model_name: str) -> list[str]:
+
+def team_feature_names(model_name: str) -> list[str]:
+    off, deff = TEAM_FEATURES.get(model_name, ([], []))
+    return [f"off_{r}" for r in off] + [f"def_{r}" for r in deff]
+
+
+def team_features(model_name: str, s: Situation) -> list[float]:
+    off, deff = TEAM_FEATURES.get(model_name, ([], []))
+    o = s.off_ratings or {}
+    d = s.def_ratings or {}
+    return [float(o.get(r, 0.0) or 0.0) for r in off] + [float(d.get(r, 0.0) or 0.0) for r in deff]
+
+
+def weather_features(s: Situation) -> list[float]:
+    wind = s.wind if s.wind is not None else (0.0 if s.roof_dome else DEFAULT_WIND)
+    return [float(s.roof_dome or 0), max(min(wind, 30.0), 0.0)]
+
+
+def feature_names(model_name: str, team: bool = False) -> list[str]:
     extra_names, _ = SPECS[model_name]
-    return (extra_names if model_name in NO_BASE else BASE_NAMES + extra_names)
+    names = (extra_names if model_name in NO_BASE else BASE_NAMES + extra_names)
+    if team:
+        names = names + team_feature_names(model_name)
+        if model_name in WEATHER_MODELS:
+            names = names + ["roof_dome", "wind_c"]
+    return names
 
 
-def features(model_name: str, s: Situation) -> np.ndarray:
+def features(model_name: str, s: Situation, team: bool = False) -> np.ndarray:
     extra_names, fn = SPECS[model_name]
     vals = [] if model_name in NO_BASE else base_features(s)
     if fn is not None:
         vals = vals + fn(s)
+    if team:
+        vals = vals + team_features(model_name, s)
+        if model_name in WEATHER_MODELS:
+            vals = vals + weather_features(s)
     return np.asarray(vals, dtype=float)
 
 
@@ -268,7 +312,19 @@ def situation_from_state(state, extra: dict | None, model_name: str) -> Situatio
         out_of_bounds=extra.get("out_of_bounds"), diff_after_td=extra.get("diff_after_td"),
         season=getattr(state.context, "season", None),
         play_kind=PLAY_KIND_FROM_TYPE.get(extra.get("play_type_kind"), "scrimmage"),
+        off_ratings=_scaled(state.context.home if off == state.home else state.context.away),
+        def_ratings=_scaled(state.context.away if off == state.home else state.context.home),
     )
+
+
+def _scaled(ratings: dict | None) -> dict | None:
+    """Simulation-time calibration of the team inputs (Phase 3): the per-play models extract the ratings' play-level
+    signal, but actual margins move about 1.4 points per simulated point, so the inputs are scaled by
+    `team_strength.input_scale` here (never on the training path)."""
+    if not ratings:
+        return ratings
+    k = float(settings()["team_strength"].get("input_scale", 1.0))
+    return ratings if k == 1.0 else {r: (v or 0.0) * k for r, v in ratings.items()}
 
 
 def situation_from_row(r: dict, model_name: str) -> Situation:
@@ -293,8 +349,10 @@ def situation_from_row(r: dict, model_name: str) -> Situation:
         diff_after_td=int(r["score_differential"] or 0) if model_name == "pat_choice" else None,
         season=r.get("season"),
         play_kind=PLAY_KIND_FROM_CLASS.get(r.get("play_class"), "scrimmage"),
+        off_ratings={k[4:]: v for k, v in r.items() if k.startswith("off_")},
+        def_ratings={k[4:]: v for k, v in r.items() if k.startswith("def_")},
     )
 
 
-def feature_matrix(model_name: str, rows: list[dict]) -> np.ndarray:
-    return np.stack([features(model_name, situation_from_row(r, model_name)) for r in rows])
+def feature_matrix(model_name: str, rows: list[dict], team: bool = False) -> np.ndarray:
+    return np.stack([features(model_name, situation_from_row(r, model_name), team) for r in rows])

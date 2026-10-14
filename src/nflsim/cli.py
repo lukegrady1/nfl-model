@@ -65,11 +65,12 @@ def sim_game(
 def train(
     models: str = typer.Option("", help="Comma-separated model names (default: all trainable)"),
     evaluate_only: bool = typer.Option(False, help="Rebuild the report from saved models without retraining"),
+    situation_only: bool = typer.Option(False, help="Train without team ratings (the Phase 2 reference models)"),
 ) -> None:
     """Train all decision models and write artifacts/models/report.md (Phase 2)."""
     from nflsim.models.train import train_all
 
-    train_all([m.strip() for m in models.split(",") if m.strip()] or None, evaluate_only=evaluate_only)
+    train_all([m.strip() for m in models.split(",") if m.strip()] or None, evaluate_only=evaluate_only, team=not situation_only)
 
 
 @app.command("swap-check")
@@ -85,8 +86,28 @@ def swap_check_cmd(
 
 @app.command()
 def features(season: int = typer.Option(...), week: int = typer.Option(...)) -> None:
-    """Build team and player inputs for a week (Phases 3-4)."""
-    _not_implemented("3-4")
+    """Build team ratings as of a week (Phase 3); player inputs follow in Phase 4."""
+    from nflsim.features.team_strength import build_team_ratings, ratings_markdown
+
+    df = build_team_ratings()
+    typer.echo(ratings_markdown(season, week, df))
+
+
+@app.command("phase3-check")
+def phase3_check(
+    season: int = typer.Option(2025),
+    n: int = typer.Option(2000, help="Simulations per game"),
+    weeks: str = typer.Option("", help="Optional week range, e.g. 1-18"),
+    workers: int | None = typer.Option(None),
+) -> None:
+    """Phase 3 acceptance: simulate a season week by week with as-of ratings and compare to results and the market."""
+    from nflsim.config import OUTPUTS_DIR
+    from nflsim.sim.season import phase3_metrics, simulate_season
+
+    out = simulate_season(season, n, parse_seasons(weeks) if weeks else None, workers=workers)
+    m, table = phase3_metrics(out)
+    typer.echo(table)
+    (OUTPUTS_DIR / f"phase3_check_{season}_{n}.md").write_text(table + "\n")
 
 
 @app.command()

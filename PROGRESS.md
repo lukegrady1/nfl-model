@@ -5,8 +5,8 @@
 | Setup | done | e429a84 |
 | 0 Data | done | e7a0861 |
 | 1 Engine | done | a62fa5f |
-| 2 Models | done | (this commit) |
-| 3 Team strength | not started | |
+| 2 Models | done | 725a6f1 |
+| 3 Team strength | done | (this commit) |
 | 4 Players | not started | |
 | 5 Scale + fair odds | not started | |
 | 6 FanDuel compare | not started | |
@@ -204,3 +204,69 @@ advantage of +1.4 points now appears through `is_home` (real +2.1; Phase 3 step 
 
 - Speed: 8.1 ms per game with the pure-Python engine and trained models (5,000 games in 41 s). 10,000 sims of one game
   would take about 80 s, so the Phase 5 Numba port is required to meet the 30-second target.
+
+## Phase 3 acceptance (2026-10-13)
+
+### Built
+
+- `features/team_strength.py`: 13 as-of team ratings per (team, season, week) for 2018-2026 (6,112 rows, playoffs
+  included) in `data/processed/team_ratings.parquet`, exponentially weighted (half-life 8 games, play-weighted) with last
+  season's regressed final as a 6-game prior, centered per week and scaled by last season's spread (see DECISIONS).
+  `nflsim features --season S --week W` builds the table and prints the week.
+- Team features wired into 7 models per the spec table (`pass_outcome` split across dropback/throw), weather into
+  `throw_outcome` and `air_yards`; every model retrained on the as-of joins. Situation-only reference models kept in
+  `artifacts/models/situation/` for the `proe` / `cpoe` / `fourth_aggr` definitions.
+- Home-field offset (`home_logit_offset`, fitted by simulation) and a simulation-time rating input scale
+  (`team_strength.input_scale`, fitted on 2019-2024, tested on 2025), both in `config/settings.yaml`.
+- `nflsim phase3-check`: week-by-week season backtest with as-of ratings, multiprocess.
+
+### Model report with team features (validation 2025; "situation-only" = Phase 2 model)
+
+| Model | Val rows | Log loss: model | situation-only | table | constant | Beats table | Beats constant | Calibration (deciles ≥500 within 3 pts) | C | Team features |
+|---|---|---|---|---|---|---|---|---|---|---|
+| play_call | 33571 | 0.5592 | 0.5604 | 0.5652 | 0.6730 | yes | yes | yes | 1.0 | yes |
+| fourth_down | 3997 | 0.2901 | 0.2925 | 0.4227 | 1.0396 | yes | yes | yes | 1.0 | yes |
+| air_yards | 16556 | 1.7110 | 1.7129 | 1.7180 | 1.8039 | yes | yes | yes | 1.0 | yes |
+| dropback_outcome | 18816 | 0.4449 | 0.4475 | 0.4484 | 0.4513 | yes | yes | yes | 10.0 | yes |
+| throw_outcome | 16556 | 0.6861 | 0.6881 | 0.6901 | 0.7345 | yes | yes | yes | 0.1 | yes |
+| yac | 10628 | 1.8578 | 1.8582 | 1.8693 | 2.0449 | yes | yes | yes | 10.0 | yes |
+| rush_yards | 12191 | 2.6607 | 2.6613 | 2.6702 | 2.7376 | yes | yes | yes | 0.1 | yes |
+| fumble_lost | 25080 | 0.0431 |  | 0.0435 | 0.0479 | yes | yes | yes | 10.0 | no |
+| fg_make | 1067 | 0.3593 |  | 0.3615 | 0.4148 | yes | yes | yes | 1.0 | no |
+| pat_choice | 1460 | 0.1611 |  | 0.2357 | 0.3005 | yes | yes | yes | 10.0 | no |
+| clock_runoff | 37519 | 1.3477 | 1.3514 | 1.5177 | 2.0570 | yes | yes | yes | 10.0 | yes |
+| presnap_penalty | 36491 | 0.2738 |  | 0.2740 | 0.2762 | yes | yes | yes | 0.1 | no |
+
+Every model with team features improves on its situation-only version; all 12 beat the table and the constant model and
+every calibration decile is within 3 points (play_call now calibrates too).
+
+### Checks
+
+- [x] **Leakage tests pass** (`tests/test_team_strength.py`): 200 random (team, week) rows recomputed from plays dated
+  before the as-of date match exactly; a perturbed week-9 play changes no rating at weeks <= 9 and does change later weeks.
+- [x] `uv run pytest`: 43 passed.
+
+Quick backtest, 2025 regular season, every game simulated 2,000 times with that week's as-of ratings
+(`nflsim phase3-check --season 2025 --n 2000`, 272 games, 23 minutes on 10 cores):
+
+| Check | Value | Required | Pass |
+|---|---|---|---|
+| corr(simulated mean margin, actual margin) | 0.429 | >= 0.25 | yes |
+| corr(closing spread, actual margin), for reference | 0.504 | | |
+| corr(simulated mean margin, closing spread) | 0.864 | >= 0.70 | yes |
+| simulated home margin (non-neutral games) | 2.16 | real 2025: 2.19; 2021-25 range 1.57-2.71 | yes |
+| std of simulated mean margins / std of closing spreads | 6.09 / 6.24 = 0.98 | 0.75-1.25 | yes |
+| slope of actual margin on simulated margin (calibration) | 1.00 | ~1 | yes |
+| mean absolute error vs actual: sim / market | 10.04 / 9.72 | | |
+| corr(simulated total, closing total) | 0.745 | | |
+
+The std ratio holds through the season (0.98 in weeks 1-6, 1.01 in 7-12, 0.95 in 13-18). The simulated totals run low
+(42.8 vs 44.9 market / 46.0 actual), the same 1-point-per-team scoring residual carried from Phase 2.
+
+**How the acceptance was reached, in order (details and numbers in DECISIONS.md):** (1) the home margin was +0.95 with
+`is_home` alone, so the spec's home logit offset was fitted by simulation (h = 0.06 gives +2.2); (2) the first backtest had
+a std ratio of 0.64. Diagnosis ruled out regularization, the smoothing parameters and per-play miscalibration, and showed the
+ratings carry a 6-point predictable spread of which the play-level composition transmits 4; (3) a per-week z-score was
+replaced by a per-season scale (kept the spec's purpose, removed an artifact); (4) a simulation-time input scale of 1.43 was
+fitted on 2019-2024 (slope 1.43, se 0.085) and validated on 2025 (slope 1.00, ratio 0.98). Item 4 is a fitted calibration
+layer rather than a play-level mechanism; Luke should confirm he is comfortable with it (it is one config value).

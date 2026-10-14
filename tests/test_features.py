@@ -46,3 +46,40 @@ def test_base_feature_definitions():
     f2 = dict(zip(feature_names("dropback_outcome"), features("dropback_outcome", s2)))
     assert f2["ydstogo_c"] == 20 and f2["goal_to_go"] == 1 and f2["inside_5"] == 1 and f2["score_diff_c"] == 1.0
     assert f2["under_2min_half"] == 1 and f2["trailing_late"] == 0 and f2["leading_late"] == 0
+
+
+@needs_data
+def test_team_features_match_from_state_and_row():
+    """Phase 3: ratings joined on training rows equal the ratings placed in the simulation context."""
+    from nflsim.engine.state import Context
+    from nflsim.features.team_strength import RATINGS
+    from nflsim.models.features import TEAM_FEATURES, feature_names
+    from nflsim.models.train import extra_from_row, rows_of, state_from_row, training_plays
+
+    from nflsim.config import settings
+
+    plays = training_plays(team=True).filter(pl.col("play_class").is_in(["pass", "run"]) & (pl.col("season") >= 2019))
+    rows = rows_of(plays.sample(n=300, seed=11))
+    saved = settings()["team_strength"]["input_scale"]
+    settings()["team_strength"]["input_scale"] = 1.0   # the simulation-time calibration is tested separately
+    try:
+        _check_rows(rows, Context, RATINGS, TEAM_FEATURES, feature_names, extra_from_row, state_from_row)
+    finally:
+        settings()["team_strength"]["input_scale"] = saved
+
+
+def _check_rows(rows, Context, RATINGS, TEAM_FEATURES, feature_names, extra_from_row, state_from_row):
+    for r in rows:
+        state = state_from_row(r)
+        off = {k: r[f"off_{k}"] for k in RATINGS}
+        deff = {k: r[f"def_{k}"] for k in RATINGS}
+        home_is_off = r["posteam"] == r["home_team"]
+        state.context = Context(home=off if home_is_off else deff, away=deff if home_is_off else off,
+                                weather={"roof_dome": 1 if r.get("roof") in ("dome", "closed") else 0, "wind": r.get("wind")},
+                                season=r["season"])
+        for name in TEAM_FEATURES:
+            a = features(name, situation_from_state(state, extra_from_row(r, name), name), True)
+            b = features(name, situation_from_row(r, name), True)
+            assert a.shape == (len(feature_names(name, True)),)
+            assert np.array_equal(a, b), (name, r["game_id"], r["play_id"])
+        assert any(abs(v) > 0 for v in off.values())  # ratings really are attached
