@@ -49,7 +49,7 @@ def game_markets(game_id: str, home: str, away: str, home_score: np.ndarray, awa
         add("total", "over", None, float(T), float((total > T).mean()), push)
         add("total", "under", None, float(T), float((total < T).mean()), push)
     for team, sc in ((home, home_score), (away, away_score)):
-        for T in np.round(np.arange(10.5, 45.0, 0.5), 1):
+        for T in _lines(s.get("team_total_lines", {"min": 10.5, "max": 44.5, "step": 0.5})):
             push = float((sc == T).mean())
             add("team_total", "over", team, float(T), float((sc > T).mean()), push)
             add("team_total", "under", team, float(T), float((sc < T).mean()), push)

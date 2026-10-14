@@ -120,7 +120,7 @@ def pass_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
     play = {"type": "pass", "clock_stopper": False, "offense": off}
     tp = team_players(state, off)
     qb = tp.qb if tp else None
-    qb_eff = tp.qb_eff() if tp else {}
+    qb_eff = tp.qb_eff() if tp else None
     pre = M["dropback_outcome"].sample(rng, state, {"player": qb_eff})
     if pre == "sack":
         yards = int(sample_exact(M, "sack_yards", rng, state))
@@ -152,7 +152,7 @@ def pass_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
     air_bin = B.air_bin(air)
     receiver = tp.pick_target(rng, air, state.yardline_100) if tp else None
     rec_eff = tp.eff(receiver) if tp else {}
-    pfe = {**qb_eff, "rec_catch_rate_oe": rec_eff.get("catch_rate_oe", 0.0), "rec_yac_oe": rec_eff.get("yac_oe", 0.0)}
+    pfe = {**qb_eff, "rec_catch_rate_oe": rec_eff.get("catch_rate_oe", 0.0), "rec_yac_oe": rec_eff.get("yac_oe", 0.0)} if tp else None
     box.add(off, "pass_attempts")
     box.padd(off, qb, "pass_attempts")
     box.padd(off, receiver, "targets")
@@ -205,7 +205,7 @@ def run_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
     play = {"type": "run", "clock_stopper": False, "offense": off}
     tp = team_players(state, off)
     carrier = tp.pick_carrier(rng, state.yardline_100) if tp else None
-    yards = min(int(sample_exact(M, "rush_yards", rng, state, {"player": {"rush_yards_oe": tp.eff(carrier).get("rush_yards_oe", 0.0)} if tp else {}})), state.yardline_100)
+    yards = min(int(sample_exact(M, "rush_yards", rng, state, {"player": {"rush_yards_oe": tp.eff(carrier).get("rush_yards_oe", 0.0)} if tp else None})), state.yardline_100)
     box.add(off, "rush_attempts")
     box.add(off, "rush_yards", yards)
     box.padd(off, carrier, "rush_attempts")

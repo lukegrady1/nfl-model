@@ -180,6 +180,7 @@ class PackedModels:
     team_def_idx: np.ndarray = None
     pf_idx: np.ndarray = None         # [n_slots, 8] PLAYER_EFF_ORDER indices for the player features
     weather_flag: np.ndarray = None   # [n_slots]
+    pf_mean: np.ndarray = None        # [n_slots, 8] training means of the player features (used when no players are tracked)
 
 
 def pack_models(M: dict) -> PackedModels:
@@ -234,7 +235,14 @@ def pack_models(M: dict) -> PackedModels:
     pm.team_def_idx = -np.ones((n, 8), dtype=np.int64)
     pm.pf_idx = -np.ones((n, 8), dtype=np.int64)
     pm.weather_flag = np.zeros(n, dtype=np.int64)
+    pm.pf_mean = np.zeros((n, 8))
     for i, name in enumerate(SLOTS):
+        if name in M and isinstance(M[name], TrainedModel):
+            m = M[name]
+            for k, f in enumerate(PLAYER_FEATURES.get(name, [])):
+                j = m.feature_names.index(f"p_{f}") if f"p_{f}" in m.feature_names else -1
+                if j >= 0:
+                    pm.pf_mean[i, k] = float(m.mean[j])
         off, deff = TEAM_FEATURES.get(name, ([], []))
         for k, r in enumerate(off):
             pm.team_off_idx[i, k] = RATINGS.index(r)

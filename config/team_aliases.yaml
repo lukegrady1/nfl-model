@@ -22,7 +22,7 @@ Las Vegas Raiders: LV
 Miami Dolphins: MIA
 Minnesota Vikings: MIN
 New England Patriots: NE
-New Orleans Saints: NO
+New Orleans Saints: "NO"   # quoted: YAML reads a bare NO as false
 New York Giants: NYG
 New York Jets: NYJ
 Philadelphia Eagles: PHI

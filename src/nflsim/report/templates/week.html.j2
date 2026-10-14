@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nflsim {{ season }} week {{ week }}</title>
+<style>
+  :root { --bg:#fff; --fg:#1b1b1b; --muted:#666; --line:#e4e4e4; --pos:#1a7f37; --neg:#b42318; --accent:#2b5fb3; }
+  body { margin:0; padding:16px; font:14px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color:var(--fg); background:var(--bg); }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:16px; margin:24px 0 8px; } h3 { font-size:14px; margin:16px 0 4px; }
+  .meta { color:var(--muted); font-size:12px; margin-bottom:12px; }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { padding:4px 8px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child, td.l, th.l { text-align:left; }
+  th { cursor:pointer; background:#f6f6f6; position:sticky; top:0; user-select:none; }
+  .pos { color:var(--pos); } .neg { color:var(--neg); }
+  .flag { font-size:11px; color:var(--muted); }
+  .tabs button { padding:6px 12px; margin-right:4px; border:1px solid var(--line); background:#f6f6f6; cursor:pointer; }
+  .tabs button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .panel { display:none; } .panel.active { display:block; }
+  .filters { margin:8px 0; display:flex; gap:12px; flex-wrap:wrap; font-size:13px; }
+  .game { display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin:8px 0 16px; }
+  .wrap { overflow-x:auto; }
+  footer { margin-top:32px; color:var(--muted); font-size:12px; border-top:1px solid var(--line); padding-top:8px; }
+</style>
+</head>
+<body>
+<h1>nflsim: {{ season }} week {{ week }}</h1>
+<div class="meta">odds pulled {{ pulled_at or "n/a" }} · {{ sims or "?" }} sims per game · model version {{ version }} · {{ unmatched }} unmatched FanDuel markets · {{ n_rows }} compared selections</div>
+{% if qb_blends %}<div class="meta">QB blends: {% for b in qb_blends %}{{ b }}{% if not loop.last %}; {% endif %}{% endfor %}</div>{% endif %}
+
+<div class="tabs">
+  <button class="active" data-tab="games">Games</button>
+  <button data-tab="edges">Biggest disagreements</button>
+  <button data-tab="props">Player props</button>
+  <button data-tab="detail">Per-game detail</button>
+</div>
+
+<div id="games" class="panel active">
+<h2>Games</h2>
+<div class="wrap"><table id="games-table">
+<thead><tr><th class="l">Game</th><th class="l">Kickoff</th><th>P(home win)</th><th>Fair spread (home)</th><th>Fair total</th><th>Fair ML (home)</th><th>FD spread</th><th>Edge</th><th>FD total</th><th>Edge</th><th>FD ML (home)</th><th>Edge</th></tr></thead>
+<tbody>
+{% for g in games %}
+<tr>
+<td class="l">{{ g.away }} @ {{ g.home }}</td><td class="l">{{ g.kickoff }}</td>
+<td>{{ "%.1f%%"|format(g.p_home * 100) if g.p_home is not none else "" }}</td>
+<td>{{ "%+.1f"|format(g.fair_spread) if g.fair_spread is not none else "" }}</td>
+<td>{{ "%.1f"|format(g.fair_total) if g.fair_total is not none else "" }}</td>
+<td>{{ g.fair_ml_home if g.fair_ml_home is not none else "" }}</td>
+<td>{{ "%+.1f (%d)"|format(g.fd_spread.line, g.fd_spread.odds) if g.fd_spread else "" }}</td>
+<td class="{{ 'pos' if g.fd_spread and g.fd_spread.edge > 0 else 'neg' }}">{{ "%+.1f"|format(g.fd_spread.edge * 100) if g.fd_spread else "" }}</td>
+<td>{{ "%.1f (%d)"|format(g.fd_total.line, g.fd_total.odds) if g.fd_total else "" }}</td>
+<td class="{{ 'pos' if g.fd_total and g.fd_total.edge > 0 else 'neg' }}">{{ "%+.1f"|format(g.fd_total.edge * 100) if g.fd_total else "" }}</td>
+<td>{{ g.fd_ml.odds if g.fd_ml else "" }}</td>
+<td class="{{ 'pos' if g.fd_ml and g.fd_ml.edge > 0 else 'neg' }}">{{ "%+.1f"|format(g.fd_ml.edge * 100) if g.fd_ml else "" }}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+<p class="meta">Edges are model probability minus FanDuel no-vig probability, in points, at FanDuel's main line for the home side / over.</p>
+<h3>Top 15 by EV per dollar (no CHECK_INPUTS or NOISE flag)</h3>
+<div class="wrap"><table>
+<thead><tr><th class="l">Game</th><th class="l">Market</th><th class="l">Selection</th><th>Line</th><th>FD odds</th><th>P(model)</th><th>P(market)</th><th>Edge</th><th>EV/$</th><th class="l">Flags</th></tr></thead>
+<tbody>{% for r in top %}<tr><td class="l">{{ r.game_id }}</td><td class="l">{{ r.market }}</td><td class="l">{{ r.player_name or r.team or r.selection }} {{ r.selection if r.player_name or r.team else "" }}</td><td>{{ r.line if r.line is not none else "" }}</td><td>{{ r.american_odds }}</td><td>{{ "%.1f%%"|format(r.p_model*100) }}</td><td>{{ "%.1f%%"|format(r.p_market*100) }}</td><td class="{{ 'pos' if r.edge > 0 else 'neg' }}">{{ "%+.1f"|format(r.edge*100) }}</td><td class="{{ 'pos' if r.ev_per_dollar > 0 else 'neg' }}">{{ "%+.3f"|format(r.ev_per_dollar) }}</td><td class="l flag">{{ r.flag }}</td></tr>{% endfor %}</tbody></table></div>
+</div>
+
+<div id="edges" class="panel">
+<h2>Biggest disagreements ({{ n_rows }} selections)</h2>
+<div class="filters">
+  <label>Market <select id="f-market"><option value="">all</option>{% for m in markets %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select></label>
+  <label>Game <select id="f-game"><option value="">all</option>{% for g in game_ids %}<option value="{{ g }}">{{ g }}</option>{% endfor %}</select></label>
+  <label>Flag <select id="f-flag"><option value="">all</option><option value="__none__">no flags</option>{% for f in flags %}<option value="{{ f }}">{{ f }}</option>{% endfor %}</select></label>
+  <label>Min |edge| pts <input id="f-edge" type="number" value="0" step="0.5" style="width:60px"></label>
+  <span id="f-count" class="meta"></span>
+</div>
+<div class="wrap"><table id="edges-table">
+<thead><tr><th class="l" data-k="game_id">Game</th><th class="l" data-k="market">Market</th><th class="l" data-k="sel">Selection</th><th data-k="line">Line</th><th data-k="american_odds">FD odds</th><th data-k="p_model">P(model)</th><th data-k="p_market">P(market)</th><th data-k="edge">Edge</th><th data-k="ev_per_dollar">EV/$</th><th data-k="model_fair_american">Fair odds</th><th data-k="mc_se">MC se</th><th class="l" data-k="flag">Flags</th></tr></thead>
+<tbody>
+{% for r in rows %}<tr data-market="{{ r.market }}" data-game="{{ r.game_id }}" data-flag="{{ r.flag }}" data-edge="{{ r.edge }}" data-ev="{{ r.ev_per_dollar }}">
+<td class="l">{{ r.game_id }}</td><td class="l">{{ r.market }}</td><td class="l">{{ r.player_name or r.team or "" }} {{ r.selection }}</td><td>{{ r.line if r.line is not none else "" }}</td><td>{{ r.american_odds }}</td><td>{{ "%.1f%%"|format(r.p_model*100) }}</td><td>{{ "%.1f%%"|format(r.p_market*100) }}</td><td class="{{ 'pos' if r.edge > 0 else 'neg' }}">{{ "%+.1f"|format(r.edge*100) }}</td><td class="{{ 'pos' if r.ev_per_dollar > 0 else 'neg' }}">{{ "%+.3f"|format(r.ev_per_dollar) }}</td><td>{{ r.model_fair_american }}</td><td>{{ "%.1f"|format(r.mc_se*100) if r.mc_se is not none else "" }}</td><td class="l flag">{{ r.flag }}</td>
+</tr>{% endfor %}
+</tbody></table></div>
+</div>
+
+<div id="props" class="panel">
+<h2>Player props</h2>
+{% for gid, prs in props_by_game.items() %}
+<h3>{{ gid }}</h3>
+<div class="wrap"><table>
+<thead><tr><th class="l">Player</th><th class="l">Market</th><th class="l">Side</th><th>FD line</th><th>FD odds</th><th>Model median</th><th>Model mean</th><th>P(model)</th><th>P(FD no-vig)</th><th>Edge</th><th>EV/$</th><th class="l">Flags</th></tr></thead>
+<tbody>{% for r in prs %}<tr><td class="l">{{ r.player_name }}</td><td class="l">{{ r.market }}</td><td class="l">{{ r.selection }}</td><td>{{ r.line }}</td><td>{{ r.american_odds }}</td><td>{{ "%.1f"|format(r.model_median) if r.model_median is not none else "" }}</td><td>{{ "%.1f"|format(r.model_mean) if r.model_mean is not none else "" }}</td><td>{{ "%.1f%%"|format(r.p_model*100) }}</td><td>{{ "%.1f%%"|format(r.p_market*100) }}</td><td class="{{ 'pos' if r.edge > 0 else 'neg' }}">{{ "%+.1f"|format(r.edge*100) }}</td><td class="{{ 'pos' if r.ev_per_dollar > 0 else 'neg' }}">{{ "%+.3f"|format(r.ev_per_dollar) }}</td><td class="l flag">{{ r.flag }}</td></tr>{% endfor %}</tbody></table></div>
+{% endfor %}
+</div>
+
+<div id="detail" class="panel">
+<h2>Per-game detail</h2>
+{% for g in games %}
+<h3>{{ g.away }} @ {{ g.home }} · P(home) {{ "%.1f%%"|format(g.p_home*100) if g.p_home is not none else "" }} · fair spread {{ "%+.1f"|format(g.fair_spread) if g.fair_spread is not none else "" }} · fair total {{ "%.1f"|format(g.fair_total) if g.fair_total is not none else "" }}</h3>
+<div class="game"><div>{{ g.svg_margin|safe }}</div><div>{{ g.svg_total|safe }}</div></div>
+{% endfor %}
+</div>
+
+<footer>These are model estimates, not guarantees. Flagged rows need a manual check: CHECK_INPUTS means the gap is larger than the review threshold (usually a wrong active list, a QB change or stale ratings), NOISE means the edge is within Monte Carlo error, QUESTIONABLE_PLAYER means the player or a teammate at his position is Questionable, ONE_SIDED means the no-vig probability is an estimate. The system reads odds only; it never places bets.</footer>
+
+<script>
+(function(){
+  document.querySelectorAll('.tabs button').forEach(function(b){ b.addEventListener('click', function(){
+    document.querySelectorAll('.tabs button').forEach(function(x){ x.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function(x){ x.classList.remove('active'); });
+    b.classList.add('active'); document.getElementById(b.dataset.tab).classList.add('active');
+  }); });
+  var table = document.getElementById('edges-table'), tbody = table.querySelector('tbody');
+  var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+  function num(s){ var v = parseFloat(String(s).replace('%','').replace('+','')); return isNaN(v) ? -Infinity : v; }
+  function applyFilter(){
+    var m = document.getElementById('f-market').value, g = document.getElementById('f-game').value, f = document.getElementById('f-flag').value;
+    var e = parseFloat(document.getElementById('f-edge').value) || 0, shown = 0;
+    rows.forEach(function(r){
+      var ok = (!m || r.dataset.market === m) && (!g || r.dataset.game === g) && Math.abs(parseFloat(r.dataset.edge)*100) >= e;
+      if (f === '__none__') ok = ok && r.dataset.flag === ''; else if (f) ok = ok && r.dataset.flag.split(',').indexOf(f) >= 0;
+      r.style.display = ok ? '' : 'none'; if (ok) shown++;
+    });
+    document.getElementById('f-count').textContent = shown + ' shown';
+  }
+  ['f-market','f-game','f-flag','f-edge'].forEach(function(id){ document.getElementById(id).addEventListener('input', applyFilter); });
+  var dir = {};
+  table.querySelectorAll('th').forEach(function(th, i){ th.addEventListener('click', function(){
+    dir[i] = !dir[i];
+    var sorted = rows.slice().sort(function(a, b){
+      var ta = a.children[i].textContent.trim(), tb = b.children[i].textContent.trim();
+      var na = num(ta), nb = num(tb);
+      var cmp = (isFinite(na) && isFinite(nb)) ? na - nb : ta.localeCompare(tb);
+      return dir[i] ? cmp : -cmp;
+    });
+    sorted.forEach(function(r){ tbody.appendChild(r); });
+  }); });
+  applyFilter();
+})();
+</script>
+</body>
+</html>

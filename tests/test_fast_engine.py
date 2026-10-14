@@ -71,7 +71,7 @@ def test_jitted_features_equal_python_features():
             n = build_features(sc["slot"], out, sc["down"], sc["ydstogo"], sc["yl"], sc["qtr"], sc["gsr"], sc["half_secs"], sc["score_diff"],
                                sc["off_to"], sc["def_to"], sc["is_home"], sc["season"], sc["air"], sc["kick_distance"], sc["roof_dome"], sc["wind"],
                                sc["pt"], sc["yards"], sc["cs"], sc["play_was_pass"], sc["oob"], sc["play_kind"], sc["diff_after_td"],
-                               off_r, def_r, sc["pf"], P.team[i], P.team_off_idx[i], P.team_def_idx[i], P.pf_idx[i], P.weather_flag[i])
+                               off_r, def_r, sc["pf"], P.team[i], P.team_off_idx[i], P.team_def_idx[i], P.pf_idx[i], P.weather_flag[i], P.pf_mean[i], 1)
             assert n == len(ref) == P.n_features[i], (name, n, len(ref))
             assert np.allclose(out[:n], ref, atol=1e-12, rtol=0), (name, np.abs(out[:n] - ref).argmax())
 
@@ -115,7 +115,7 @@ def test_jitted_probabilities_equal_python_probabilities():
             n = build_features(sc["slot"], out, sc["down"], sc["ydstogo"], sc["yl"], sc["qtr"], sc["gsr"], sc["half_secs"], sc["score_diff"],
                                sc["off_to"], sc["def_to"], sc["is_home"], sc["season"], sc["air"], sc["kick_distance"], sc["roof_dome"], sc["wind"],
                                sc["pt"], sc["yards"], sc["cs"], sc["play_was_pass"], sc["oob"], sc["play_kind"], sc["diff_after_td"],
-                               off_r, def_r, sc["pf"], P.team[i], P.team_off_idx[i], P.team_def_idx[i], P.pf_idx[i], P.weather_flag[i])
+                               off_r, def_r, sc["pf"], P.team[i], P.team_off_idx[i], P.team_def_idx[i], P.pf_idx[i], P.weather_flag[i], P.pf_mean[i], 1)
             room = room_for(name, s.yardline_100, extra.get("air_yards")) if P.mask_kind[i] else 0
             trained_probs(out, n, P.mean[i], P.std[i], np.atleast_2d(P.W[i]), P.b[i], P.binary[i], probs, P.n_classes[i], P.mask_kind[i],
                           P.lower_edge[i], room, P.home_dir[i], 0.5 * P.home_offset[i] * home_sign)

@@ -14,8 +14,15 @@ INACTIVE_ROSTER = {"RES", "CUT", "RET", "EXE", "SUS", "PUP", "NON", "DEV", "INA"
 
 
 def weekly_roster(season: int, week: int) -> pl.DataFrame:
+    """The week's roster, or the latest published week before it (nflverse posts rosters as each week is played)."""
     r = pl.read_parquet(RAW_DIR / f"rosters_weekly_{season}.parquet", columns=["season", "week", "team", "position", "gsis_id", "full_name", "status"])
-    return r.filter((pl.col("week") == week) & pl.col("position").is_in(SKILL_POSITIONS) & pl.col("gsis_id").is_not_null())
+    weeks = [w for w in r["week"].unique().to_list() if w <= week]
+    if not weeks:
+        return r.clear()
+    use = max(weeks)
+    if use != week:
+        typer.echo(f"warning: no weekly roster for {season} week {week} yet; using week {use}")
+    return r.filter((pl.col("week") == use) & pl.col("position").is_in(SKILL_POSITIONS) & pl.col("gsis_id").is_not_null())
 
 
 def injury_report(season: int, week: int) -> pl.DataFrame:

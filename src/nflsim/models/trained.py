@@ -63,6 +63,7 @@ class TrainedModel:
         self.b = np.asarray(spec["intercept"], dtype=float)
         self.binary = len(self.classes) == 2 and self.W.shape[0] == 1
         self.team = bool(spec.get("team_features", False))
+        self.pf_pos = np.array([i for i, n in enumerate(self.feature_names) if n.startswith("p_")], dtype=int)
         self.home_dir = home_direction(self.name, self.classes)
         self.home_offset = float(settings().get("home_logit_offset", {}).get(self.name, 0.0)) if self.home_dir is not None else 0.0
         self.within: dict = {}
@@ -89,6 +90,8 @@ class TrainedModel:
 
     def proba(self, state, extra: dict) -> np.ndarray:
         x = features(self.name, situation_from_state(state, extra, self.name), self.team)
+        if len(self.pf_pos) and extra.get("player") is None:
+            x[self.pf_pos] = self.mean[self.pf_pos]     # no player tracking: league-average player effects
         shift = None
         if self.home_offset and not state.is_neutral:
             off = extra.get("offense") or state.possession

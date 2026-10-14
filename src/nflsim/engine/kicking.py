@@ -126,7 +126,7 @@ def field_goal(state: GameState, rng: np.random.Generator, M: dict, box) -> dict
     box.add(off, "fg_attempts")
     play = {"type": "field_goal", "clock_stopper": True, "offense": off, "distance": dist}
     tp = state.context.players.get(off) if state.context.players else None
-    made = M["fg_make"].sample(rng, state, {"distance": min(dist, 79), "player": tp.kicker_eff() if tp else {}}) == "made"
+    made = M["fg_make"].sample(rng, state, {"distance": min(dist, 79), "player": tp.kicker_eff() if tp else None}) == "made"
     if made:
         state.score[off] += 3
         box.add(off, "fg_made")

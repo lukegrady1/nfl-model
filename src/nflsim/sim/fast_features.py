@@ -233,8 +233,9 @@ def _air_pair(out, k, air):
 @njit(cache=True)
 def build_features(slot, out, down, ydstogo, yl, qtr, gsr, half_secs, score_diff, off_to, def_to, is_home, season,
                    air, kick_distance, roof_dome, wind, pt, yards, cs, play_was_pass, oob, play_kind, diff_after_td,
-                   off_r, def_r, pf, team_flag, team_off_idx, team_def_idx, pf_idx, weather_flag):
-    """Fills `out` with the model's features; returns the count. Inputs follow situation_from_state."""
+                   off_r, def_r, pf, team_flag, team_off_idx, team_def_idx, pf_idx, weather_flag, pf_mean, has_players):
+    """Fills `out` with the model's features; returns the count. Inputs follow situation_from_state.
+    When has_players is false the player features take their training means (TrainedModel.proba does the same)."""
     if slot == S_PLAY_CALL:
         down = min(down, 3)
     k = 0
@@ -330,7 +331,8 @@ def build_features(slot, out, down, ydstogo, yl, qtr, gsr, half_secs, score_diff
             out[k] = float(roof_dome); out[k + 1] = max(min(w, 30.0), 0.0); k += 2
         for j in range(8):
             if pf_idx[j] >= 0:
-                out[k] = pf[pf_idx[j]]; k += 1
+                out[k] = pf[pf_idx[j]] if has_players else pf_mean[j]
+                k += 1
     return k
 
 

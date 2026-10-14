@@ -27,7 +27,9 @@ def settings() -> dict[str, Any]:
 
 def team_aliases() -> dict[str, str]:
     with open(CONFIG_DIR / "team_aliases.yaml") as f:
-        return yaml.safe_load(f)
+        raw = yaml.safe_load(f)
+    # YAML 1.1 turns a bare NO / YES / ON / OFF into a boolean; the Saints are "NO"
+    return {k: ("NO" if v is False else str(v)) for k, v in raw.items()}
 
 
 def parse_seasons(spec: str) -> list[int]:

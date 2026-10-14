@@ -8,8 +8,8 @@
 | 2 Models | done | 725a6f1 |
 | 3 Team strength | done | 6eafd8b |
 | 4 Players | done | 7ecc830 |
-| 5 Scale + fair odds | done | (this commit) |
-| 6 FanDuel compare | not started | |
+| 5 Scale + fair odds | done | 3cb740f |
+| 6 FanDuel compare | done | (this commit) |
 | 7 Backtest | not started | |
 
 ## Setup acceptance (2026-10-13)
@@ -433,3 +433,42 @@ efficiencies / ratings, 2,000 sims per game, 40 minutes on 10 cores). The run pr
 - [x] **Sanity:** for every game P(home win) + P(away win) + P(tie) = 1, P(home covers -L) is monotone in L across all
   82 spread lines, and P(over T) is monotone in T across all 61 totals.
 - [x] `uv run pytest`: 50 passed (the slow equivalence test deselected by default; run with `-m slow`).
+
+## Phase 6 acceptance (2026-10-13)
+
+### Built
+
+- `odds/fanduel.py`: a read-only FanDuel client (none existed) around the NFL content page Luke supplied and the
+  event-page prop tabs, normalizing moneyline, spreads (incl. alternates), totals (incl. alternates), team totals, player
+  over/unders, alternate ladders (one-sided) and anytime TD into the spec's table; every pull saved with a timestamp.
+- `odds/matching.py` (teams via `team_aliases.yaml`, games on teams + date, players within the game's active rosters
+  with fuzzy fallback and `player_aliases.yaml`, `unmatched.csv`), `odds/devig.py` (multiplicative and power
+  methods, hold, one-sided estimate), `odds/compare.py` (p_model at the exact line, push-adjusted; edge, decimal odds,
+  EV per dollar, fair American odds, MC se, flags), `report/dashboard.py` + `templates/week.html.j2` (header, games
+  table, sortable/filterable disagreements table, props by game, per-game margin/total histograms with the FanDuel
+  lines marked, footer), `nflsim compare`, `nflsim report` and `nflsim week`.
+
+### Checks (current week = 2026 week 6, Oct 15-19; FanDuel also lists week 7)
+
+| Check | Result | Required |
+|---|---|---|
+| FanDuel game markets matched (week 6) | 5174/5358 (96.6%) | >= 95% |
+| FanDuel player props matched (week 6) | 1638/1889 (86.7%) | >= 85% |
+| Week 7 (next week, main markets only on FanDuel) | game 84/84 (100.0%), no props posted yet | |
+| De-vig unit tests (-110/-110 -> 0.5/0.5, hold 4.76%; -150/+130) | pass | pass |
+| EV unit tests incl. whole-number push | pass | pass |
+| Dashboard renders, sorts and filters in Chrome | yes (no console errors; sort by Edge and min-edge filter exercised) | yes |
+| Median absolute edge on main spreads and totals | 8.8 pts (spreads 5.7, totals 12.0) | under about 4 |
+| `uv run pytest` | 59 passed | |
+
+The last row fails. Fair totals average -3.6 points vs FanDuel's main totals (week 7: -3.5), so
+nearly every main-total row carries CHECK_INPUTS, and spreads disagree by a 5.7-point median. The spec's reading
+applies: the model is miscalibrated on scoring and no edge should be trusted until that is fixed. The two causes
+found and fixed during this phase (zero player effects for unpublished roster weeks; a corrupt receiver-YAC feature)
+removed about 3 of the original 6.6-point gap; the remaining 3.6 points are the scoring deficit carried since Phase 2
+(league-average sim 42.0 vs 46 actual in 2025-26). First item for Phase 7.
+
+Unmatched after the fixes: 4 player names in week 6 (Zavier Scott, Chigoziem Okonkwo, Omar Cooper Jr., Dont'e Thornton Jr.),
+practice-squad elevations not on the published roster; game-market misses are alternate lines beyond the widened
+ranges. `nflsim week --season 2026 --week 6` ran end to end (ingest refresh, features, 14 games x 10,000 sims,
+pull, compare, report) and printed the report path and the top-15 rows.

@@ -55,7 +55,8 @@ def _expectations(plays: pl.DataFrame) -> pl.DataFrame:
         return plays.select("game_id", "play_id").join(pred, on=["game_id", "play_id"], how="left")["_p"]
 
     def ev(m, P, mapping=None):
-        v = np.array([mapping(c) for c in m.classes]) if mapping else None
+        """Expected value of the model's classes: within-bin mean yards when the class is a bin, else the class value."""
+        v = np.array([class_value_mean(m, c, mapping) for c in m.classes])
         return P @ v
 
     att = pl.col("pass_outcome").is_in(["complete", "incomplete", "interception"]) & pl.col("air_yards").is_not_null() & pl.col("yardline_100").is_not_null()
@@ -72,7 +73,7 @@ def _expectations(plays: pl.DataFrame) -> pl.DataFrame:
         x_rush=predict("rush_yards", run, lambda m, P: ev(m, P, rush_val)),
         x_sack=predict("dropback_outcome", db, lambda m, P: P[:, m.classes.index("sack")]),
         x_scramble=predict("dropback_outcome", db, lambda m, P: P[:, m.classes.index("scramble")]),
-        x_air=predict("air_yards", att, lambda m, P: ev(m, P, lambda c: {0: -3.0, 1: 2.0, 2: 7.0, 3: 12.0, 4: 17.0, 5: 24.0, 6: 36.0}[int(c)])),
+        x_air=predict("air_yards", att, lambda m, P: ev(m, P)),
         x_fg=predict("fg_make", fg, lambda m, P: P[:, m.classes.index("made")]),
     )
 
@@ -80,6 +81,16 @@ def _expectations(plays: pl.DataFrame) -> pl.DataFrame:
 def qb_id_expr() -> pl.Expr:
     """The quarterback on a dropback: nflfastR puts the scrambling QB in rusher_player_id with no passer id."""
     return pl.when(pl.col("pass_outcome") == "scramble").then(pl.col("rusher_player_id")).otherwise(pl.col("passer_player_id"))
+
+
+def class_value_mean(model, cls, fallback=None) -> float:
+    """Mean yards of a class: the within-bin empirical mean when the model draws exact yards inside the class."""
+    within = getattr(model, "within", {}) or {}
+    if cls in within:
+        vals, cum = within[cls]
+        probs = np.diff(np.concatenate([[0.0], np.minimum(cum, 1.0)]))
+        return float(np.dot(vals, probs) / max(probs.sum(), 1e-12))
+    return float(fallback(cls)) if fallback else float(cls)
 
 
 # ---- per-game, per-player counts ---------------------------------------------------------------------------------
@@ -193,7 +204,18 @@ def roster_grid() -> pl.DataFrame:
         frames.append(r.filter(pl.col("position").is_in(SKILL_POSITIONS) & pl.col("gsis_id").is_not_null()))
     g = pl.concat(frames).rename({"gsis_id": "player_id"}).unique(subset=["player_id", "season", "week"]).select(
         "player_id", "season", "week", "team", "position", "status")
-    return g.with_columns(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64))
+    g = g.with_columns(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64))
+    # weeks on the schedule whose roster is not published yet (the current season) reuse the latest published week,
+    # so as-of usage / efficiency rows exist for upcoming games
+    sched = load_schedules().filter(pl.col("game_type") != "PRE").select("season", "week").unique()
+    extra = []
+    for season in g["season"].unique().to_list():
+        have = set(g.filter(pl.col("season") == season)["week"].to_list())
+        last = max(have)
+        for w in sched.filter(pl.col("season") == season)["week"].to_list():
+            if w not in have and w > last:
+                extra.append(g.filter((pl.col("season") == season) & (pl.col("week") == last)).with_columns(week=pl.lit(int(w), dtype=pl.Int64)))
+    return pl.concat([g] + extra) if extra else g
 
 
 def build_player_tables(plays: pl.DataFrame | None = None, write: bool = True) -> tuple[pl.DataFrame, pl.DataFrame]:

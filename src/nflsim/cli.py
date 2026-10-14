@@ -153,15 +153,36 @@ def simulate(
 
 
 @app.command()
-def compare(season: int = typer.Option(...), week: int = typer.Option(...)) -> None:
-    """Pull FanDuel odds and compute edges (Phase 6)."""
-    _not_implemented("6")
+def compare(
+    season: int = typer.Option(...),
+    week: int = typer.Option(...),
+    pull: bool = typer.Option(True, help="Pull fresh FanDuel odds (otherwise use the latest saved pull)"),
+) -> None:
+    """Pull FanDuel odds, de-vig, match to the model's fair odds and write comparison.parquet (Phase 6)."""
+    from nflsim.odds.workflow import compare_week
+
+    compare_week(season, week, pull=pull)
 
 
 @app.command()
-def week(season: int = typer.Option(...), week: int = typer.Option(...)) -> None:
-    """Run features, simulate, compare and report in one go (Phase 6)."""
-    _not_implemented("6")
+def week(
+    season: int = typer.Option(...),
+    week: int = typer.Option(...),
+    sims: int | None = typer.Option(None),
+    pull: bool = typer.Option(True),
+) -> None:
+    """Ingest (current season) -> features -> simulate -> compare -> report, then print the report path and top rows (Phase 6)."""
+    from nflsim.odds.workflow import run_week
+
+    run_week(season, week, sims=sims, pull=pull)
+
+
+@app.command()
+def report(season: int = typer.Option(...), week: int = typer.Option(...)) -> None:
+    """Rebuild the HTML dashboard from the saved week outputs."""
+    from nflsim.report.dashboard import build_report
+
+    typer.echo(str(build_report(season, week)))
 
 
 @app.command()

@@ -117,3 +117,19 @@ def test_home_logit_offset_direction():
     assert ev_home > ev_away
     # neutral site: no offset, and is_home = 0 for both, so the two offenses are identical
     assert np.allclose(throw.proba(state("H", True), extra), throw.proba(state("A", True), extra))
+
+
+@needs_models
+def test_missing_player_defaults_to_training_mean():
+    """A context without players must behave like league-average players, not like zero over-expected players."""
+    from nflsim.engine.state import GameState, Phase
+    from nflsim.models.trained import load_trained
+
+    m = load_trained("throw_outcome")
+    s = GameState(home="H", away="A", possession="H", down=1, ydstogo=10, yardline_100=60, qtr=2, game_seconds_remaining=2400, phase=Phase.SCRIMMAGE)
+    p_none = m.proba(s, {"air_yards": 8, "player": None})
+    p_zero = m.proba(s, {"air_yards": 8, "player": {}})
+    means = {f: float(m.mean[m.feature_names.index(f"p_{f}")]) for f in ("rec_catch_rate_oe", "qb_cpoe", "qb_int_rate")}
+    p_mean = m.proba(s, {"air_yards": 8, "player": means})
+    assert abs(p_none[0] - p_mean[0]) < 1e-12
+    assert p_none[0] > p_zero[0]   # the training-mean receiver catches more than a zero-OE one
