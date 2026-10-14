@@ -6,8 +6,8 @@
 | 0 Data | done | e7a0861 |
 | 1 Engine | done | a62fa5f |
 | 2 Models | done | 725a6f1 |
-| 3 Team strength | done | (this commit) |
-| 4 Players | not started | |
+| 3 Team strength | done | 6eafd8b |
+| 4 Players | done | (this commit) |
 | 5 Scale + fair odds | not started | |
 | 6 FanDuel compare | not started | |
 | 7 Backtest | not started | |
@@ -270,3 +270,79 @@ ratings carry a 6-point predictable spread of which the play-level composition t
 replaced by a per-season scale (kept the spec's purpose, removed an artifact); (4) a simulation-time input scale of 1.43 was
 fitted on 2019-2024 (slope 1.43, se 0.085) and validated on 2025 (slope 1.00, ratio 0.98). Item 4 is a fitted calibration
 layer rather than a play-level mechanism; Luke should confirm he is comfortable with it (it is one config value).
+
+## Phase 4 acceptance (2026-10-13)
+
+### Built
+
+- `features/players.py`: per-player usage shares (target, carry, deep/short/intermediate, red zone, snap share) and
+  shrunk efficiency over expected (receiver catch rate and YAC, rusher yards, QB CPOE / sack / INT / scramble / aDOT,
+  kicker FG make), as of before each game, for every skill player on a weekly roster 2018-2026 (129,751 rows) in
+  `data/processed/player_usage.parquet` and `player_eff.parquet`; position-slot priors in `position_priors.parquet`.
+- `features/actives.py`: actives per team from the weekly roster, the injury report and the overrides file; starting QB
+  by recent dropbacks; `data/inputs/actives_<season>_wk<week>.json` with Questionable warnings.
+- `engine/players.py` + engine hooks: target chosen after the throw depth (share x air-yard band fit, red-zone blend),
+  carrier from carry share, QB as passer (scrambles = QB rushes), player effects fed to the models, full per-player box
+  score (16 stats incl. anytime TD) in `GameResult.players`.
+- `sim/game_inputs.py`: per-game context assembly including the QB blend rule (step 4.4); `nflsim features` now builds
+  team ratings, player tables and the week's actives; `nflsim phase4-check` runs the player backfill.
+- Six models retrained with player features (report below); kicker effect in `fg_make` (step 4.5 done).
+
+### Model report (validation 2025; "situation-only" = Phase 2 reference)
+
+| Model | Val rows | Log loss: model | situation-only | table | constant | Beats table | Beats constant | Calibration (deciles ≥500 within 3 pts) | C | Team features |
+|---|---|---|---|---|---|---|---|---|---|---|
+| play_call | 33571 | 0.5592 | 0.5604 | 0.5652 | 0.6730 | yes | yes | yes | 1.0 | yes |
+| fourth_down | 3997 | 0.2901 | 0.2925 | 0.4227 | 1.0396 | yes | yes | yes | 1.0 | yes |
+| air_yards | 16556 | 1.7104 | 1.7129 | 1.7180 | 1.8039 | yes | yes | yes | 1.0 | yes |
+| dropback_outcome | 18816 | 0.4392 | 0.4475 | 0.4484 | 0.4513 | yes | yes | yes | 1.0 | yes |
+| throw_outcome | 16556 | 0.6838 | 0.6881 | 0.6901 | 0.7345 | yes | yes | yes | 0.01 | yes |
+| yac | 10628 | 1.8562 | 1.8582 | 1.8693 | 2.0449 | yes | yes | NO | 10.0 | yes |
+| rush_yards | 12191 | 2.6613 | 2.6613 | 2.6702 | 2.7376 | yes | yes | yes | 0.1 | yes |
+| fumble_lost | 25080 | 0.0431 |  | 0.0435 | 0.0479 | yes | yes | yes | 10.0 | no |
+| fg_make | 1067 | 0.3589 | 0.3593 | 0.3615 | 0.4148 | yes | yes | yes | 1.0 | yes |
+| pat_choice | 1460 | 0.1611 |  | 0.2357 | 0.3005 | yes | yes | yes | 10.0 | no |
+| clock_runoff | 37519 | 1.3477 | 1.3514 | 1.5177 | 2.0570 | yes | yes | yes | 10.0 | yes |
+| presnap_penalty | 36491 | 0.2738 |  | 0.2740 | 0.2762 | yes | yes | yes | 0.1 | no |
+
+Every player-feature model improves on its Phase 3 version; `yac` misses one calibration decile by 4 points (the
+others are within 3), kept since it beats the table and the Phase 3 model on log loss.
+
+### Checks
+
+Backfill: `nflsim phase4-check --season 2025 --weeks 4-18 --n 2000` (224 games, as-of actives / shares /
+efficiencies / ratings, 2,000 sims per game, 40 minutes on 10 cores). The run printed 28 QB blends
+(step 4.4), e.g. ARI (Jacoby Brissett), BAL (Cooper Rush), CAR (Andy Dalton), CIN (Jake Browning).
+
+- [x] **Calibration** (players with at least 8 appearances in weeks 4-18; the spec's 20 is impossible in 15 weeks):
+
+| Stat | player-games | below median | inside 10-90 band | mean actual | mean sim |
+|---|---|---|---|---|---|
+| pass_yards | 359 | 46.9% | 67.4% | 224.58 | 214.74 |
+| rush_yards | 1194 | 44.7% | 69.7% | 37.90 | 33.15 |
+| rec_yards | 2731 | 44.1% | 79.9% | 32.36 | 29.98 |
+| receptions | 2731 | 44.4% | 85.8% | 2.90 | 2.73 |
+| all | 7015 | 44.5% | 79.8% | 31.67 | 29.37 |
+
+  Pooled: 44.5% below the median (target 40-60%), 79.8% inside the 10th-90th band (target 70-90%): PASS
+
+  Per stat, receiving yards and receptions are well inside both bands; passing and rushing yards are at the edge of
+  the 10-90 band (67% and 70%) with simulated means 4-12% low, the same scoring residual carried since Phase 2
+  (simulated totals 42.7 vs 46.1 actual).
+- [x] **Team consistency** (`test_box_score_consistency_over_random_games`, 60 games): receiving yards = QB passing
+  yards = team passing yards; receptions = completions; targets = attempts; rushing yards and attempts sum to the
+  team's; sack yards live only in the team stat; receiving TDs = QB passing TDs.
+- [x] **Leakage** (`test_player_shares_use_only_games_before_the_week`): week-9 rows rebuilt from games dated before
+  the as-of date match exactly, and a perturbed week-9 game changes week 10 but not week 9.
+- [x] **Injury scenario** (`test_injury_scenario_wr1_out_redistributes_targets`): removing BUF's WR1 raises the other
+  receivers' simulated targets and keeps team pass attempts within 1 (400 games each way).
+- [x] Team-level checks with player inputs still pass:
+
+| Check | Value | Pass |
+|---|---|---|
+| corr(sim margin, actual margin) >= 0.25 | 0.438 | yes |
+| corr(sim margin, closing spread) >= 0.7 | 0.866 | yes |
+| sim home margin within real range (see text) | 2.237 | see text |
+| std of sim margins within +/-25% of spread std | 0.874 | yes |
+
+- [x] `uv run pytest`: 48 passed.

@@ -86,11 +86,39 @@ def swap_check_cmd(
 
 @app.command()
 def features(season: int = typer.Option(...), week: int = typer.Option(...)) -> None:
-    """Build team ratings as of a week (Phase 3); player inputs follow in Phase 4."""
+    """Build team ratings, player usage/efficiency tables and the week's actives (Phases 3-4)."""
+    from nflsim.features.actives import build_actives
+    from nflsim.features.players import build_player_tables, build_position_priors
     from nflsim.features.team_strength import build_team_ratings, ratings_markdown
 
     df = build_team_ratings()
     typer.echo(ratings_markdown(season, week, df))
+    usage, eff = build_player_tables()
+    build_position_priors(usage)
+    build_actives(season, week, eff.filter((eff["season"] == season) & (eff["week"] == week)))
+
+
+@app.command("phase4-check")
+def phase4_check(
+    season: int = typer.Option(2025),
+    weeks: str = typer.Option("4-18"),
+    n: int = typer.Option(2000, help="Simulations per game"),
+    min_games: int = typer.Option(8, help="Minimum game appearances per player for the calibration check"),
+    workers: int | None = typer.Option(None),
+) -> None:
+    """Phase 4 acceptance: backfill a season with as-of player inputs and check player stat calibration."""
+    import polars as pl
+
+    from nflsim.config import OUTPUTS_DIR
+    from nflsim.sim.season import phase3_metrics, phase4_metrics, simulate_season
+
+    out = simulate_season(season, n, parse_seasons(weeks), workers=workers, with_players=True)
+    m3, t3 = phase3_metrics(out)
+    typer.echo(t3)
+    players = pl.read_parquet(OUTPUTS_DIR / f"player_sim_{season}_REG_{n}_players.parquet")
+    m4, t4 = phase4_metrics(players, min_games)
+    typer.echo(t4)
+    (OUTPUTS_DIR / f"phase4_check_{season}_{n}.md").write_text(t3 + "\n\n" + t4 + "\n")
 
 
 @app.command("phase3-check")

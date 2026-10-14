@@ -111,16 +111,23 @@ def scrimmage_play(state: GameState, rng: np.random.Generator, M: dict, box) -> 
     return run_play(state, rng, M, box)
 
 
+def team_players(state: GameState, team: str):
+    return state.context.players.get(team) if state.context.players else None
+
+
 def pass_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
     off, deff = state.possession, state.defense
     play = {"type": "pass", "clock_stopper": False, "offense": off}
-    pre = M["dropback_outcome"].sample(rng, state, {})
+    tp = team_players(state, off)
+    qb = tp.qb if tp else None
+    qb_eff = tp.qb_eff() if tp else {}
+    pre = M["dropback_outcome"].sample(rng, state, {"player": qb_eff})
     if pre == "sack":
         yards = int(sample_exact(M, "sack_yards", rng, state))
         box.add(off, "sacks")
         box.add(off, "sack_yards", -yards)
         play["outcome"], play["yards"] = "sack", yards
-        if fumble_check(state, PT_SACK, yards, rng, M, box, play):
+        if fumble_check(state, PT_SACK, yards, rng, M, box, play, carrier=qb):
             return play
         apply_result(state, yards, box, play)
         return play
@@ -129,33 +136,46 @@ def pass_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
         box.add(off, "scrambles")
         box.add(off, "rush_attempts")
         box.add(off, "rush_yards", yards)
+        box.padd(off, qb, "rush_attempts")
+        box.padd(off, qb, "rush_yards", yards)
+        box.padd(off, qb, "longest_rush", yards)
         play["outcome"], play["yards"] = "scramble", yards
-        if fumble_check(state, PT_SCRAMBLE, yards, rng, M, box, play):
+        if fumble_check(state, PT_SCRAMBLE, yards, rng, M, box, play, carrier=qb):
             return play
         if out_of_bounds(state, PT_SCRAMBLE, rng, M):
             play["clock_stopper"] = True
             play["oob"] = True
-        apply_result(state, yards, box, play)
+        apply_result(state, yards, box, play, scorer=qb, kind="rush")
         return play
-    # a throw
-    air = min(int(sample_exact(M, "air_yards", rng, state)), state.yardline_100)
+    # a throw: depth first, then the target (step 4.3), then the outcome with the receiver's and QB's effects
+    air = min(int(sample_exact(M, "air_yards", rng, state, {"player": qb_eff})), state.yardline_100)
     air_bin = B.air_bin(air)
+    receiver = tp.pick_target(rng, air, state.yardline_100) if tp else None
+    rec_eff = tp.eff(receiver) if tp else {}
+    pfe = {**qb_eff, "rec_catch_rate_oe": rec_eff.get("catch_rate_oe", 0.0), "rec_yac_oe": rec_eff.get("yac_oe", 0.0)}
     box.add(off, "pass_attempts")
-    extra = {"air_bin": air_bin, "air_yards": air}
+    box.padd(off, qb, "pass_attempts")
+    box.padd(off, receiver, "targets")
+    extra = {"air_bin": air_bin, "air_yards": air, "player": pfe}
     outcome = M["throw_outcome"].sample(rng, state, extra)
-    play["outcome"], play["air"] = outcome, air
+    play["outcome"], play["air"], play["receiver"] = outcome, air, receiver
     if outcome == "complete":
         yac = int(sample_exact(M, "yac", rng, state, extra))
         yards = min(air + yac, state.yardline_100)
         box.add(off, "completions")
         box.add(off, "pass_yards", yards)
+        box.padd(off, qb, "completions")
+        box.padd(off, qb, "pass_yards", yards)
+        box.padd(off, receiver, "receptions")
+        box.padd(off, receiver, "rec_yards", yards)
+        box.padd(off, receiver, "longest_rec", yards)
         play["yards"] = yards
-        if fumble_check(state, PT_COMPLETION, yards, rng, M, box, play):
+        if fumble_check(state, PT_COMPLETION, yards, rng, M, box, play, carrier=receiver):
             return play
         if out_of_bounds(state, PT_COMPLETION, rng, M):
             play["clock_stopper"] = True
             play["oob"] = True
-        apply_result(state, yards, box, play)
+        apply_result(state, yards, box, play, scorer=receiver, kind="pass", passer=qb)
         return play
     if outcome == "incomplete":
         play["yards"] = 0
@@ -165,6 +185,7 @@ def pass_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
     # interception: possession flips at the catch spot plus the return
     box.add(off, "interceptions")
     box.add(off, "turnovers")
+    box.padd(off, qb, "interceptions")
     play["clock_stopper"] = True
     play["yards"] = 0
     spot = state.yardline_100 - air     # offense frame; 0 = caught in the end zone
@@ -182,16 +203,21 @@ def pass_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
 def run_play(state: GameState, rng: np.random.Generator, M: dict, box) -> dict:
     off = state.possession
     play = {"type": "run", "clock_stopper": False, "offense": off}
-    yards = min(int(sample_exact(M, "rush_yards", rng, state)), state.yardline_100)
+    tp = team_players(state, off)
+    carrier = tp.pick_carrier(rng, state.yardline_100) if tp else None
+    yards = min(int(sample_exact(M, "rush_yards", rng, state, {"player": {"rush_yards_oe": tp.eff(carrier).get("rush_yards_oe", 0.0)} if tp else {}})), state.yardline_100)
     box.add(off, "rush_attempts")
     box.add(off, "rush_yards", yards)
-    play["yards"] = yards
-    if fumble_check(state, PT_RUN, yards, rng, M, box, play):
+    box.padd(off, carrier, "rush_attempts")
+    box.padd(off, carrier, "rush_yards", yards)
+    box.padd(off, carrier, "longest_rush", yards)
+    play["yards"], play["carrier"] = yards, carrier
+    if fumble_check(state, PT_RUN, yards, rng, M, box, play, carrier=carrier):
         return play
     if out_of_bounds(state, PT_RUN, rng, M):
         play["clock_stopper"] = True
         play["oob"] = True
-    apply_result(state, yards, box, play)
+    apply_result(state, yards, box, play, scorer=carrier, kind="rush")
     return play
 
 
@@ -204,7 +230,8 @@ def out_of_bounds(state: GameState, pt: int, rng: np.random.Generator, M: dict) 
     return M["out_of_bounds"].sample(rng, state, {"play_type_idx": pt, "play_type": PLAY_TYPES[pt]}) == "yes"
 
 
-def fumble_check(state: GameState, pt: int, yards: int, rng: np.random.Generator, M: dict, box, play: dict) -> bool:
+def fumble_check(state: GameState, pt: int, yards: int, rng: np.random.Generator, M: dict, box, play: dict,
+                 carrier: str | None = None) -> bool:
     """D9. A lost fumble flips possession at the spot (v1: no return). Returns True if possession changed."""
     off, deff = state.possession, state.defense
     res = M["fumble_lost"].sample(rng, state, {"play_type_idx": pt, "play_type": PLAY_TYPES[pt], "yards": yards})
@@ -215,6 +242,7 @@ def fumble_check(state: GameState, pt: int, yards: int, rng: np.random.Generator
             res = "yes_td"
     box.add(off, "fumbles_lost")
     box.add(off, "turnovers")
+    box.padd(off, carrier, "fumbles_lost")
     play["clock_stopper"] = True
     play["result"] = "fumble_lost"
     if res == "yes_td":
@@ -231,7 +259,8 @@ def fumble_check(state: GameState, pt: int, yards: int, rng: np.random.Generator
     return True
 
 
-def apply_result(state: GameState, yards: int, box, play: dict) -> None:
+def apply_result(state: GameState, yards: int, box, play: dict, scorer: str | None = None, kind: str | None = None,
+                 passer: str | None = None) -> None:
     """Step 1.4.8: touchdown, safety, first down, next down, turnover on downs."""
     off, deff = state.possession, state.defense
     new_spot = state.yardline_100 - yards
@@ -239,6 +268,11 @@ def apply_result(state: GameState, yards: int, box, play: dict) -> None:
         kicking.touchdown(state, off, box)
         play["clock_stopper"] = True
         play["result"] = "touchdown"
+        if scorer is not None:
+            box.padd(off, scorer, "rec_tds" if kind == "pass" else "rush_tds")
+            box.padd(off, scorer, "anytime_td")
+            if kind == "pass":
+                box.padd(off, passer, "pass_tds")
         return
     if new_spot >= 100:
         kicking.safety(state, off, box)

@@ -45,6 +45,7 @@ class Situation:
     play_kind: str | None = None      # clock model: kickoff / punt / field_goal / penalty / scrimmage
     off_ratings: dict | None = None   # Phase 3 team z-scores for the offense (missing = league average, 0)
     def_ratings: dict | None = None
+    player: dict | None = None        # Phase 4 shrunk over-expected effects of the players on this play
 
 
 # ---- base situation features ---------------------------------------------------------------------------------
@@ -248,6 +249,24 @@ TEAM_FEATURES: dict[str, tuple[list[str], list[str]]] = {
 }
 # Phase 3 (step 3.4): weather for the passing models (fg_make already has it).
 WEATHER_MODELS = {"throw_outcome", "air_yards"}
+# Phase 4 (step 4.4): player efficiency features (shrunk over-expected), added with the team features.
+PLAYER_FEATURES: dict[str, list[str]] = {
+    "dropback_outcome": ["qb_sack_rate", "qb_scramble_rate"],
+    "throw_outcome": ["rec_catch_rate_oe", "qb_cpoe", "qb_int_rate"],
+    "yac": ["rec_yac_oe"],
+    "rush_yards": ["rush_yards_oe"],
+    "air_yards": ["qb_adot"],
+    "fg_make": ["kicker_fg_oe"],
+}
+
+
+def player_feature_names(model_name: str) -> list[str]:
+    return [f"p_{f}" for f in PLAYER_FEATURES.get(model_name, [])]
+
+
+def player_features(model_name: str, s: Situation) -> list[float]:
+    pf = s.player or {}
+    return [float(pf.get(f, 0.0) or 0.0) for f in PLAYER_FEATURES.get(model_name, [])]
 
 
 def team_feature_names(model_name: str) -> list[str]:
@@ -274,6 +293,7 @@ def feature_names(model_name: str, team: bool = False) -> list[str]:
         names = names + team_feature_names(model_name)
         if model_name in WEATHER_MODELS:
             names = names + ["roof_dome", "wind_c"]
+        names = names + player_feature_names(model_name)
     return names
 
 
@@ -286,6 +306,7 @@ def features(model_name: str, s: Situation, team: bool = False) -> np.ndarray:
         vals = vals + team_features(model_name, s)
         if model_name in WEATHER_MODELS:
             vals = vals + weather_features(s)
+        vals = vals + player_features(model_name, s)
     return np.asarray(vals, dtype=float)
 
 
@@ -314,6 +335,7 @@ def situation_from_state(state, extra: dict | None, model_name: str) -> Situatio
         play_kind=PLAY_KIND_FROM_TYPE.get(extra.get("play_type_kind"), "scrimmage"),
         off_ratings=_scaled(state.context.home if off == state.home else state.context.away),
         def_ratings=_scaled(state.context.away if off == state.home else state.context.home),
+        player=extra.get("player"),
     )
 
 
@@ -351,6 +373,7 @@ def situation_from_row(r: dict, model_name: str) -> Situation:
         play_kind=PLAY_KIND_FROM_CLASS.get(r.get("play_class"), "scrimmage"),
         off_ratings={k[4:]: v for k, v in r.items() if k.startswith("off_")},
         def_ratings={k[4:]: v for k, v in r.items() if k.startswith("def_")},
+        player={k[2:]: v for k, v in r.items() if k.startswith("p_")},
     )
 
 

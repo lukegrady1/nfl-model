@@ -28,7 +28,7 @@ CLASSES = {
     "fumble_lost": ["no", "yes"], "fg_make": ["missed", "made"], "pat_choice": ["kick", "two"],
     "clock_runoff": list(range(10)), "presnap_penalty": ["none", "offense", "defense"],
 }
-ROW_COLS = ["game_id", "play_id", "season", "season_type", "home_team", "away_team", "posteam", "defteam", "down",
+ROW_COLS = ["receiver_player_id", "rusher_player_id", "passer_player_id", "kicker_player_id", "game_id", "play_id", "season", "season_type", "home_team", "away_team", "posteam", "defteam", "down",
             "ydstogo", "yardline_100", "qtr", "game_seconds_remaining", "half_seconds_remaining", "score_differential",
             "posteam_score", "defteam_score", "posteam_timeouts_remaining", "defteam_timeouts_remaining", "roof", "wind",
             "air_yards", "yards_after_catch", "kick_distance", "yards_gained", "clock_stopper", "play_class",
@@ -55,6 +55,31 @@ def training_plays(team: bool = False) -> pl.DataFrame:
         deff = tr.rename({"team": "defteam", **{r: f"def_{r}" for r in RATINGS}})
         plays = plays.join(off, on=["posteam", "season", "week"], how="left").join(deff, on=["defteam", "season", "week"], how="left")
         plays = plays.with_columns([pl.col(f"off_{r}").fill_null(0.0) for r in RATINGS] + [pl.col(f"def_{r}").fill_null(0.0) for r in RATINGS])
+        plays = join_player_effects(plays)
+    return plays
+
+
+def join_player_effects(plays: pl.DataFrame) -> pl.DataFrame:
+    """Phase 4: as-of shrunk player efficiencies joined by the receiver, rusher, passer and kicker of each play."""
+    from nflsim.features.players import EFF_PATH, load_player_eff
+
+    if not EFF_PATH.exists():
+        return plays
+    from nflsim.features.players import qb_id_expr
+
+    eff = load_player_eff()
+    plays = plays.with_columns(qb_player_id=qb_id_expr())
+    specs = [("receiver_player_id", {"catch_rate_oe": "p_rec_catch_rate_oe", "yac_oe": "p_rec_yac_oe"}),
+             ("rusher_player_id", {"rush_yards_oe": "p_rush_yards_oe"}),
+             ("qb_player_id", {k: f"p_{k}" for k in ("qb_cpoe", "qb_sack_rate", "qb_int_rate", "qb_scramble_rate", "qb_adot")}),
+             ("kicker_player_id", {"kicker_fg_oe": "p_kicker_fg_oe"})]
+    for id_col, mapping in specs:
+        if id_col not in plays.columns:
+            continue
+        sub = eff.select(["player_id", "season", "week"] + list(mapping)).rename({"player_id": id_col, **mapping})
+        sub = sub.with_columns(pl.col("season").cast(plays.schema["season"]), pl.col("week").cast(plays.schema["week"]))
+        plays = plays.join(sub, on=[id_col, "season", "week"], how="left")
+        plays = plays.with_columns([pl.col(c).fill_null(0.0) for c in mapping.values()])
     return plays
 
 
@@ -125,7 +150,7 @@ def dataset(name: str, plays: pl.DataFrame) -> tuple[pl.DataFrame, str, str | No
 
 def rows_of(df: pl.DataFrame) -> list[dict]:
     cols = [c for c in ROW_COLS + ["play_type_fumble", "target", "exact"] if c in df.columns]
-    cols += [c for c in df.columns if c.startswith("off_") or c.startswith("def_")]
+    cols += [c for c in df.columns if c.startswith("off_") or c.startswith("def_") or c.startswith("p_")]
     return df.select(cols).to_dicts()
 
 
@@ -265,6 +290,7 @@ def extra_from_row(r: dict, name: str) -> dict:
     e["under_two"] = int(r["half_seconds_remaining"]) <= 120
     if name == "pat_choice":
         e["diff_after_td"] = int(r.get("score_differential") or 0)
+    e["player"] = {k[2:]: v for k, v in r.items() if k.startswith("p_")}
     return e
 
 
@@ -406,7 +432,9 @@ def train_all(names: list[str] | None = None, evaluate_only: bool = False, team:
 
     to_train = [] if evaluate_only else (names or TRAINABLE)
     plays = training_plays(team=team)
-    fits = {name: train_model(name, plays, team=team and (name in TEAM_FEATURES or name in WEATHER_MODELS)) for name in to_train}
+    from nflsim.models.features import PLAYER_FEATURES
+
+    fits = {name: train_model(name, plays, team=team and (name in TEAM_FEATURES or name in WEATHER_MODELS or name in PLAYER_FEATURES)) for name in to_train}
     for name in TRAINABLE:
         if name not in fits and model_path(name).exists() and model_path(name, MODELS_DIR / "val").exists():
             fits[name] = reload_fit(name, plays)

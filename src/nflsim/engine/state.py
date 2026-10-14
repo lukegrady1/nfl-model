@@ -27,7 +27,7 @@ class Context:
     """Team and player inputs. Empty in Phase 1; filled in Phases 3-4."""
     home: dict = field(default_factory=dict)
     away: dict = field(default_factory=dict)
-    players: dict = field(default_factory=dict)
+    players: dict = field(default_factory=dict)   # {team: TeamPlayers} (Phase 4); empty = no player tracking
     weather: dict = field(default_factory=dict)   # {"roof_dome": 0/1, "wind": mph}; empty = neutral defaults
     season: int | None = None                      # season being simulated (era feature); None = last training season
 

@@ -8,13 +8,13 @@ Trained 2026-10-13 on seasons 2018-2025 (regular season + playoffs), validated o
 |---|---|---|---|---|---|---|---|---|---|---|
 | play_call | 33571 | 0.5592 | 0.5604 | 0.5652 | 0.6730 | yes | yes | yes | 1.0 | yes |
 | fourth_down | 3997 | 0.2901 | 0.2925 | 0.4227 | 1.0396 | yes | yes | yes | 1.0 | yes |
-| air_yards | 16556 | 1.7110 | 1.7129 | 1.7180 | 1.8039 | yes | yes | yes | 1.0 | yes |
-| dropback_outcome | 18816 | 0.4449 | 0.4475 | 0.4484 | 0.4513 | yes | yes | yes | 10.0 | yes |
-| throw_outcome | 16556 | 0.6861 | 0.6881 | 0.6901 | 0.7345 | yes | yes | yes | 0.1 | yes |
-| yac | 10628 | 1.8578 | 1.8582 | 1.8693 | 2.0449 | yes | yes | yes | 10.0 | yes |
-| rush_yards | 12191 | 2.6607 | 2.6613 | 2.6702 | 2.7376 | yes | yes | yes | 0.1 | yes |
+| air_yards | 16556 | 1.7104 | 1.7129 | 1.7180 | 1.8039 | yes | yes | yes | 1.0 | yes |
+| dropback_outcome | 18816 | 0.4392 | 0.4475 | 0.4484 | 0.4513 | yes | yes | yes | 1.0 | yes |
+| throw_outcome | 16556 | 0.6838 | 0.6881 | 0.6901 | 0.7345 | yes | yes | yes | 0.01 | yes |
+| yac | 10628 | 1.8562 | 1.8582 | 1.8693 | 2.0449 | yes | yes | NO | 10.0 | yes |
+| rush_yards | 12191 | 2.6613 | 2.6613 | 2.6702 | 2.7376 | yes | yes | yes | 0.1 | yes |
 | fumble_lost | 25080 | 0.0431 |  | 0.0435 | 0.0479 | yes | yes | yes | 10.0 | no |
-| fg_make | 1067 | 0.3593 |  | 0.3615 | 0.4148 | yes | yes | yes | 1.0 | no |
+| fg_make | 1067 | 0.3589 | 0.3593 | 0.3615 | 0.4148 | yes | yes | yes | 1.0 | yes |
 | pat_choice | 1460 | 0.1611 |  | 0.2357 | 0.3005 | yes | yes | yes | 10.0 | no |
 | clock_runoff | 37519 | 1.3477 | 1.3514 | 1.5177 | 2.0570 | yes | yes | yes | 10.0 | yes |
 | presnap_penalty | 36491 | 0.2738 |  | 0.2740 | 0.2762 | yes | yes | yes | 0.1 | no |
@@ -89,166 +89,166 @@ Sanity read: go rate should fall with ydstogo; punt should rise with yardline (o
 
 ## air_yards
 
-Rows: 135319 total, 16556 validation. Features: 57. Best C = 1.0.
+Rows: 135319 total, 16556 validation. Features: 58. Best C = 1.0.
 
-Log loss on validation: model 1.7110, Phase 1 table 1.7180, constant 1.8039.
+Log loss on validation: model 1.7104, Phase 1 table 1.7180, constant 1.8039.
 
 Calibration (probability of the modal class):
 
 | Decile | n | Mean predicted | Observed | Gap |
 |---|---|---|---|---|
-| 1 | 1656 | 0.218 | 0.224 | -0.006 |
-| 2 | 1656 | 0.237 | 0.233 | +0.004 |
-| 3 | 1656 | 0.244 | 0.251 | -0.007 |
-| 4 | 1656 | 0.250 | 0.262 | -0.012 |
-| 5 | 1656 | 0.256 | 0.246 | +0.009 |
-| 6 | 1656 | 0.263 | 0.272 | -0.009 |
-| 7 | 1655 | 0.272 | 0.282 | -0.009 |
-| 8 | 1655 | 0.286 | 0.284 | +0.002 |
-| 9 | 1655 | 0.311 | 0.303 | +0.008 |
-| 10 | 1655 | 0.560 | 0.566 | -0.006 |
+| 1 | 1656 | 0.216 | 0.219 | -0.002 |
+| 2 | 1656 | 0.236 | 0.237 | -0.001 |
+| 3 | 1656 | 0.243 | 0.252 | -0.008 |
+| 4 | 1656 | 0.249 | 0.244 | +0.005 |
+| 5 | 1656 | 0.255 | 0.254 | +0.001 |
+| 6 | 1656 | 0.263 | 0.261 | +0.002 |
+| 7 | 1655 | 0.272 | 0.279 | -0.006 |
+| 8 | 1655 | 0.286 | 0.288 | -0.002 |
+| 9 | 1655 | 0.311 | 0.309 | +0.003 |
+| 10 | 1655 | 0.560 | 0.566 | -0.005 |
 
 Largest standardized coefficients:
 
 | Feature | Class | Coef |
 |---|---|---|
-| i_d3_logyd | 0 | +0.731 |
-| down_3 | 0 | -0.668 |
-| red_zone | 5 | -0.651 |
-| red_zone | 6 | -0.610 |
-| i_d3_logyd | 2 | -0.557 |
+| i_d3_logyd | 0 | +0.725 |
+| down_3 | 0 | -0.666 |
+| red_zone | 5 | -0.663 |
+| red_zone | 6 | -0.626 |
+| i_d3_logyd | 2 | -0.541 |
 
 Sanity read: deep bins rise with ydstogo and trailing_late; fall near the goal line (yardline small)
 
 ## dropback_outcome
 
-Rows: 152045 total, 18816 validation. Features: 24. Best C = 10.0.
+Rows: 152045 total, 18816 validation. Features: 26. Best C = 1.0.
 
-Log loss on validation: model 0.4449, Phase 1 table 0.4484, constant 0.4513.
+Log loss on validation: model 0.4392, Phase 1 table 0.4484, constant 0.4513.
 
 Calibration (probability of the modal class):
 
 | Decile | n | Mean predicted | Observed | Gap |
 |---|---|---|---|---|
-| 1 | 1882 | 0.813 | 0.810 | +0.003 |
-| 2 | 1882 | 0.851 | 0.846 | +0.005 |
-| 3 | 1882 | 0.870 | 0.860 | +0.010 |
-| 4 | 1882 | 0.885 | 0.880 | +0.005 |
-| 5 | 1882 | 0.896 | 0.872 | +0.024 |
-| 6 | 1882 | 0.904 | 0.887 | +0.017 |
-| 7 | 1881 | 0.911 | 0.896 | +0.015 |
+| 1 | 1882 | 0.784 | 0.791 | -0.007 |
+| 2 | 1882 | 0.833 | 0.835 | -0.002 |
+| 3 | 1882 | 0.857 | 0.853 | +0.005 |
+| 4 | 1882 | 0.874 | 0.872 | +0.001 |
+| 5 | 1882 | 0.886 | 0.881 | +0.005 |
+| 6 | 1882 | 0.896 | 0.892 | +0.004 |
+| 7 | 1881 | 0.906 | 0.894 | +0.013 |
 | 8 | 1881 | 0.917 | 0.914 | +0.003 |
-| 9 | 1881 | 0.924 | 0.916 | +0.008 |
-| 10 | 1881 | 0.935 | 0.918 | +0.017 |
+| 9 | 1881 | 0.927 | 0.930 | -0.002 |
+| 10 | 1881 | 0.941 | 0.937 | +0.004 |
 
 Largest standardized coefficients:
 
 | Feature | Class | Coef |
 |---|---|---|
-| yardline | throw | -0.316 |
-| yardline | sack | +0.306 |
-| yardline_sq | throw | +0.285 |
-| yardline_sq | sack | -0.239 |
-| log_ydstogo | sack | +0.167 |
+| yardline | sack | +0.315 |
+| yardline | throw | -0.310 |
+| yardline_sq | throw | +0.278 |
+| p_qb_scramble_rate | scramble | +0.272 |
+| yardline_sq | sack | -0.248 |
 
 Sanity read: sacks and scrambles should rise with ydstogo / down_3 (long-developing plays)
 
 ## throw_outcome
 
-Rows: 135319 total, 16556 validation. Features: 45. Best C = 0.1.
+Rows: 135319 total, 16556 validation. Features: 48. Best C = 0.01.
 
-Log loss on validation: model 0.6861, Phase 1 table 0.6901, constant 0.7345.
+Log loss on validation: model 0.6838, Phase 1 table 0.6901, constant 0.7345.
 
 Calibration (probability of the modal class):
 
 | Decile | n | Mean predicted | Observed | Gap |
 |---|---|---|---|---|
-| 1 | 1656 | 0.503 | 0.527 | -0.024 |
-| 2 | 1656 | 0.545 | 0.550 | -0.005 |
-| 3 | 1656 | 0.582 | 0.595 | -0.012 |
-| 4 | 1656 | 0.623 | 0.643 | -0.019 |
-| 5 | 1656 | 0.667 | 0.678 | -0.010 |
-| 6 | 1656 | 0.706 | 0.713 | -0.007 |
-| 7 | 1655 | 0.736 | 0.720 | +0.016 |
-| 8 | 1655 | 0.764 | 0.761 | +0.003 |
-| 9 | 1655 | 0.793 | 0.780 | +0.013 |
-| 10 | 1655 | 0.832 | 0.816 | +0.016 |
+| 1 | 1656 | 0.502 | 0.512 | -0.010 |
+| 2 | 1656 | 0.545 | 0.555 | -0.010 |
+| 3 | 1656 | 0.585 | 0.594 | -0.009 |
+| 4 | 1656 | 0.628 | 0.638 | -0.011 |
+| 5 | 1656 | 0.672 | 0.685 | -0.014 |
+| 6 | 1656 | 0.709 | 0.690 | +0.019 |
+| 7 | 1655 | 0.741 | 0.740 | +0.001 |
+| 8 | 1655 | 0.769 | 0.752 | +0.017 |
+| 9 | 1655 | 0.799 | 0.777 | +0.022 |
+| 10 | 1655 | 0.838 | 0.835 | +0.003 |
 
 Largest standardized coefficients:
 
 | Feature | Class | Coef |
 |---|---|---|
-| air_le-1 | complete | +0.233 |
-| yardline | complete | +0.231 |
-| air_yards_sq | complete | -0.226 |
-| yardline | incomplete | -0.215 |
-| air_yards_c | incomplete | -0.209 |
+| air_le-1 | complete | +0.214 |
+| air_yards_sq | complete | -0.194 |
+| air_20_29 | complete | -0.187 |
+| yardline | complete | +0.186 |
+| air_yards_c | incomplete | -0.182 |
 
 Sanity read: completions fall and interceptions rise with air_yards_c
 
 ## yac
 
-Rows: 87728 total, 10628 validation. Features: 73. Best C = 10.0.
+Rows: 87728 total, 10628 validation. Features: 74. Best C = 10.0.
 
-Log loss on validation: model 1.8578, Phase 1 table 1.8693, constant 2.0449.
+Log loss on validation: model 1.8562, Phase 1 table 1.8693, constant 2.0449.
 
 Calibration (probability of the modal class):
 
 | Decile | n | Mean predicted | Observed | Gap |
 |---|---|---|---|---|
-| 1 | 1063 | 0.171 | 0.196 | -0.025 |
-| 2 | 1063 | 0.188 | 0.207 | -0.019 |
-| 3 | 1063 | 0.210 | 0.224 | -0.014 |
-| 4 | 1063 | 0.228 | 0.230 | -0.001 |
-| 5 | 1063 | 0.249 | 0.252 | -0.003 |
-| 6 | 1063 | 0.277 | 0.268 | +0.009 |
-| 7 | 1063 | 0.308 | 0.283 | +0.024 |
-| 8 | 1063 | 0.341 | 0.339 | +0.002 |
-| 9 | 1062 | 0.387 | 0.397 | -0.010 |
-| 10 | 1062 | 0.696 | 0.687 | +0.009 |
+| 1 | 1063 | 0.172 | 0.185 | -0.014 |
+| 2 | 1063 | 0.189 | 0.199 | -0.010 |
+| 3 | 1063 | 0.211 | 0.237 | -0.026 |
+| 4 | 1063 | 0.230 | 0.248 | -0.018 |
+| 5 | 1063 | 0.250 | 0.249 | +0.001 |
+| 6 | 1063 | 0.278 | 0.282 | -0.004 |
+| 7 | 1063 | 0.309 | 0.269 | +0.040 |
+| 8 | 1063 | 0.344 | 0.349 | -0.005 |
+| 9 | 1062 | 0.392 | 0.381 | +0.011 |
+| 10 | 1062 | 0.699 | 0.693 | +0.006 |
 
 Largest standardized coefficients:
 
 | Feature | Class | Coef |
 |---|---|---|
-| log_room | 1 | +4.897 |
-| yardline | 1 | -3.156 |
-| log_room | 0 | -2.246 |
-| room_1 | 1 | +2.028 |
-| room_le5 | 1 | +2.000 |
+| log_room | 1 | +4.964 |
+| yardline | 1 | -3.285 |
+| log_room | 0 | -2.262 |
+| room_1 | 1 | +2.044 |
+| room_le5 | 1 | +2.015 |
 
 Sanity read: long YAC bins fall with air_yards_c (screens/short passes get YAC) and near the goal line
 
 ## rush_yards
 
-Rows: 95754 total, 12191 validation. Features: 56. Best C = 0.1.
+Rows: 95754 total, 12191 validation. Features: 57. Best C = 0.1.
 
-Log loss on validation: model 2.6607, Phase 1 table 2.6702, constant 2.7376.
+Log loss on validation: model 2.6613, Phase 1 table 2.6702, constant 2.7376.
 
 Calibration (probability of the modal class):
 
 | Decile | n | Mean predicted | Observed | Gap |
 |---|---|---|---|---|
-| 1 | 1220 | 0.111 | 0.116 | -0.005 |
-| 2 | 1219 | 0.118 | 0.142 | -0.024 |
-| 3 | 1219 | 0.121 | 0.119 | +0.002 |
-| 4 | 1219 | 0.123 | 0.123 | +0.000 |
-| 5 | 1219 | 0.126 | 0.118 | +0.008 |
-| 6 | 1219 | 0.129 | 0.113 | +0.016 |
-| 7 | 1219 | 0.135 | 0.119 | +0.016 |
-| 8 | 1219 | 0.149 | 0.135 | +0.015 |
-| 9 | 1219 | 0.185 | 0.190 | -0.005 |
-| 10 | 1219 | 0.348 | 0.343 | +0.005 |
+| 1 | 1220 | 0.109 | 0.113 | -0.004 |
+| 2 | 1219 | 0.117 | 0.121 | -0.003 |
+| 3 | 1219 | 0.121 | 0.139 | -0.019 |
+| 4 | 1219 | 0.124 | 0.115 | +0.009 |
+| 5 | 1219 | 0.126 | 0.123 | +0.003 |
+| 6 | 1219 | 0.130 | 0.116 | +0.013 |
+| 7 | 1219 | 0.136 | 0.126 | +0.010 |
+| 8 | 1219 | 0.150 | 0.135 | +0.014 |
+| 9 | 1219 | 0.185 | 0.185 | -0.000 |
+| 10 | 1219 | 0.348 | 0.346 | +0.002 |
 
 Largest standardized coefficients:
 
 | Feature | Class | Coef |
 |---|---|---|
-| log_ydstogo | 2 | -0.956 |
-| yl_21_30 | 40 | -0.648 |
-| log_ydstogo | 1 | +0.577 |
-| red_zone | 25 | -0.553 |
-| yl_1 | 2 | -0.514 |
+| log_ydstogo | 2 | -0.954 |
+| yl_21_30 | 40 | -0.650 |
+| log_ydstogo | 1 | +0.587 |
+| red_zone | 25 | -0.554 |
+| yl_1 | 2 | -0.509 |
 
 Sanity read: long gains fall with red_zone/inside_5 and with short-yardage situations
 
@@ -287,34 +287,34 @@ Sanity read: sacks should carry the highest fumble-lost rate; completions the lo
 
 ## fg_make
 
-Rows: 7988 total, 1067 validation. Features: 6. Best C = 1.0.
+Rows: 7988 total, 1067 validation. Features: 7. Best C = 1.0.
 
-Log loss on validation: model 0.3593, Phase 1 table 0.3615, constant 0.4148.
+Log loss on validation: model 0.3589, Phase 1 table 0.3615, constant 0.4148.
 
 Calibration (P(class 1)):
 
 | Decile | n | Mean predicted | Observed | Gap |
 |---|---|---|---|---|
-| 1 | 107 | 0.610 | 0.636 | -0.025 |
-| 2 | 107 | 0.702 | 0.710 | -0.009 |
-| 3 | 107 | 0.763 | 0.766 | -0.003 |
-| 4 | 107 | 0.822 | 0.813 | +0.009 |
-| 5 | 107 | 0.870 | 0.897 | -0.027 |
-| 6 | 107 | 0.911 | 0.869 | +0.041 |
-| 7 | 107 | 0.942 | 0.925 | +0.016 |
-| 8 | 106 | 0.961 | 0.962 | -0.001 |
-| 9 | 106 | 0.976 | 0.981 | -0.005 |
+| 1 | 107 | 0.603 | 0.617 | -0.014 |
+| 2 | 107 | 0.697 | 0.729 | -0.032 |
+| 3 | 107 | 0.761 | 0.785 | -0.024 |
+| 4 | 107 | 0.820 | 0.794 | +0.026 |
+| 5 | 107 | 0.869 | 0.907 | -0.037 |
+| 6 | 107 | 0.909 | 0.860 | +0.049 |
+| 7 | 107 | 0.941 | 0.925 | +0.016 |
+| 8 | 106 | 0.961 | 0.972 | -0.011 |
+| 9 | 106 | 0.976 | 0.972 | +0.004 |
 | 10 | 106 | 0.987 | 0.991 | -0.003 |
 
 Largest standardized coefficients:
 
 | Feature | Class | Coef |
 |---|---|---|
-| kick_distance | made | -1.504 |
-| kick_distance_cu | made | +0.689 |
-| kick_distance_sq | made | -0.397 |
-| era | made | +0.136 |
-| wind_c | made | -0.119 |
+| kick_distance | made | -1.501 |
+| kick_distance_cu | made | +0.677 |
+| kick_distance_sq | made | -0.393 |
+| era | made | +0.138 |
+| wind_c | made | -0.114 |
 
 Sanity read: make probability falls with kick_distance and wind, rises with roof_dome
 

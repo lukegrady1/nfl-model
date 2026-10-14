@@ -9,8 +9,17 @@ TEAM_STATS = ["plays", "pass_attempts", "completions", "pass_yards", "sacks", "s
               "touchdowns", "two_point_attempts", "xp_attempts"]
 
 
+PLAYER_STATS = ["pass_attempts", "completions", "pass_yards", "pass_tds", "interceptions", "rush_attempts", "rush_yards",
+                "rush_tds", "targets", "receptions", "rec_yards", "rec_tds", "longest_rec", "longest_rush", "fumbles_lost",
+                "anytime_td"]
+
+
 def empty_stats() -> dict:
     return {k: 0 for k in TEAM_STATS}
+
+
+def empty_player_stats() -> dict:
+    return {k: 0 for k in PLAYER_STATS}
 
 
 @dataclass
@@ -42,9 +51,23 @@ class BoxScore:
         self.stats = {home: empty_stats(), away: empty_stats()}
         self.reg_score: dict | None = None
         self.log: list | None = [] if debug else None
+        self.players: dict = {home: {}, away: {}}   # team -> player_id -> stats
 
     def add(self, team: str, stat: str, value: int = 1) -> None:
         self.stats[team][stat] += value
+
+    def padd(self, team: str, pid: str | None, stat: str, value: int = 1) -> None:
+        if pid is None:
+            return
+        d = self.players[team].get(pid)
+        if d is None:
+            d = self.players[team][pid] = empty_player_stats()
+        if stat.startswith("longest_"):
+            d[stat] = max(d[stat], value)
+        elif stat == "anytime_td":
+            d[stat] = 1
+        else:
+            d[stat] += value
 
     def snapshot(self, state) -> dict | None:
         if self.log is None:
@@ -62,6 +85,6 @@ class BoxScore:
         return GameResult(
             home=self.home, away=self.away, home_score=state.score[self.home], away_score=state.score[self.away],
             reg_home_score=reg[self.home], reg_away_score=reg[self.away], went_ot=state.ot_state.period > 0,
-            tie=state.score[self.home] == state.score[self.away], team_stats=self.stats, players={},
+            tie=state.score[self.home] == state.score[self.away], team_stats=self.stats, players=self.players,
             play_log=self.log,
         )
